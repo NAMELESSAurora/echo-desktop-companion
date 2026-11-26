@@ -3,6 +3,8 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files
+
 ROOT = Path(SPECPATH).resolve()
 
 a = Analysis(
@@ -13,6 +15,7 @@ a = Analysis(
         (str(ROOT / "src" / "companion" / "web"), "companion/web"),
         (str(ROOT / "src" / "companion" / "assets"), "companion/assets"),
         (str(ROOT / ".env.example"), "."),
+        *collect_data_files("certifi"),
     ],
     hiddenimports=[
         "uvicorn.logging",

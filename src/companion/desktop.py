@@ -313,12 +313,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _configure_frozen_tls() -> None:
+    """Ensure httpx and websockets find certifi's bundled CA roots inside PyInstaller EXEs."""
+    if not is_frozen():
+        return
+    try:
+        import certifi
+
+        ca_path = Path(certifi.where())
+        if ca_path.exists():
+            os.environ.setdefault("SSL_CERT_FILE", str(ca_path))
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", str(ca_path))
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.version:
         print(f"{APP_NAME} {APP_VERSION}")
         return 0
 
+    _configure_frozen_tls()
     paths = resolve_runtime_paths()
     redirect_stdio_when_windowless(paths.log_file)
 

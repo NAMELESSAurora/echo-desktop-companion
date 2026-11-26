@@ -101,6 +101,43 @@ def smoke_test_exe(exe_path: Path, port: int = 18765) -> None:
             proc.kill()
             proc.wait(timeout=5)
 
+    # Test 3: Live-mode startup check (verifies certifi CA bundle & httpx SSL context in EXE)
+    live_smoke_data = ROOT / ".local" / "exe-smoke-live"
+    live_smoke_data.mkdir(parents=True, exist_ok=True)
+    live_env = os.environ.copy()
+    live_env["COMPANION_MODE"] = "live"
+    live_env["COMPANION_DATA_DIR"] = str(live_smoke_data)
+    live_port = port + 1
+    live_base = f"http://127.0.0.1:{live_port}"
+    live_proc = subprocess.Popen(
+        [str(exe_path), "--headless", "--no-tray", "--port", str(live_port)],
+        env=live_env,
+    )
+    try:
+        deadline = time.monotonic() + 20.0
+        live_ok = False
+        while time.monotonic() < deadline:
+            if live_proc.poll() is not None:
+                raise RuntimeError(f"Live-mode EXE exited early with code {live_proc.returncode}")
+            try:
+                with urllib.request.urlopen(f"{live_base}/health", timeout=1.0) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    if resp.status == 200 and body.get("mode") == "live":
+                        live_ok = True
+                        break
+            except Exception:
+                time.sleep(0.2)
+        if not live_ok:
+            raise RuntimeError("Live-mode EXE did not become healthy within 20s")
+        print(f"OK: {exe_path.name} live-mode TLS/httpx boot verified on {live_base}")
+    finally:
+        live_proc.terminate()
+        try:
+            live_proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            live_proc.kill()
+            live_proc.wait(timeout=5)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build EchoCompanion.exe")
