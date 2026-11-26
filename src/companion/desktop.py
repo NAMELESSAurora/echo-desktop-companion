@@ -122,8 +122,9 @@ def redirect_stdio_when_windowless(log_file: Path) -> None:
 
 def check_companion_health(host: str, port: int, timeout: float = 0.6) -> bool:
     url = f"http://{host}:{port}/health"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with opener.open(url, timeout=timeout) as resp:
             if resp.status != 200:
                 return False
             data = json.loads(resp.read().decode("utf-8"))
@@ -198,14 +199,24 @@ def launch_app_window(url: str, profile_dir: Path) -> subprocess.Popen | None:
     args = [
         str(browser),
         f"--app={url}",
+        "--new-window",
         "--window-size=1440,900",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-background-mode",
     ]
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    popen_kwargs: dict = {}
+    if os.name == "nt":
+        # Never pass CREATE_NO_WINDOW to GUI browsers: Edge/Chrome can inherit a hidden
+        # window state and stay invisible with MainWindowHandle=0. Force SW_SHOWNORMAL.
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 1  # SW_SHOWNORMAL
+        popen_kwargs["startupinfo"] = si
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     try:
-        return subprocess.Popen(args, creationflags=flags)
+        return subprocess.Popen(args, **popen_kwargs)
     except OSError:
         webbrowser.open(url)
         return None
