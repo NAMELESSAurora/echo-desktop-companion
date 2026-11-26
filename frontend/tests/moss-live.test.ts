@@ -124,13 +124,15 @@ describe('MossLiveClient protocol state machine', () => {
       },
     );
 
-    await client.connect('sess-123', 'voice-abc');
+    await client.connect('sess-123', 'voice-abc', 'tk-once');
     expect(socket.url).toContain('/v1/sessions/sess-123/live');
     expect(socket.url).toContain('voice=voice-abc');
+    expect(socket.url).toContain('ticket=tk-once');
 
     socket.emitJson('live.ready', {
       mode: 'mock',
-      model: 'moss-live-1.0',
+      provider: 'qwen',
+      model: 'qwen-audio-3.1-realtime-flash',
       remote_session_id: 'remote-1',
       memory_scope: 'session',
       delegation: 'none',

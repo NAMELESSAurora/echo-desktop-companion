@@ -258,6 +258,21 @@ def _run_with_tray(
     def on_open_docs(icon, _item):
         webbrowser.open(f"{url}/docs")
 
+    def on_copy_token(icon, _item):
+        token_path = paths.data_dir / "api-token"
+        if token_path.exists():
+            tok = token_path.read_text(encoding="utf-8").strip()
+            if tok:
+                try:
+                    subprocess.run(
+                        ["clip"],
+                        input=tok.encode("utf-8"),
+                        check=False,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                except OSError:
+                    pass
+
     def on_quit(icon, _item):
         server.should_exit = True
         icon.stop()
@@ -268,6 +283,7 @@ def _run_with_tray(
         pystray.MenuItem("打开独立伴生窗口", on_open_app, default=True),
         pystray.MenuItem("在默认浏览器中打开", on_open_browser),
         pystray.MenuItem("打开配置与数据目录", on_open_data),
+        pystray.MenuItem("复制本地访问令牌 (Live 模式)", on_copy_token),
         pystray.MenuItem("查看 API 接口文档", on_open_docs),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出回声", on_quit),

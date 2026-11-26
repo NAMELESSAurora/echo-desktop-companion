@@ -36,7 +36,15 @@ class Settings(BaseSettings):
     qwen_voice: str = "longanhuan_v3.1"
     sample_rate: Literal[16000, 24000, 48000] = 24000
 
-    # MOSS-Live-1.0 Full-Duplex Realtime Voice Track
+    # Realtime Full-Duplex Voice Track (default: Qwen 3.1 Realtime Flash)
+    live_provider: Literal["qwen", "moss"] = "qwen"
+    qwen_realtime_url: str = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    qwen_realtime_model: str = "qwen-audio-3.1-realtime-flash"
+    qwen_realtime_voice: str = ""
+    qwen_realtime_language: str = "zh"
+    qwen_silence_gate_rms: float = Field(default=0.014, ge=0.0, le=0.2)
+
+    # MOSS-Live-1.0 Full-Duplex Realtime Voice Track (optional alternative)
     moss_api_key: SecretStr = SecretStr("")
     moss_realtime_url: str = "wss://api.mosi.cn/v1/realtime"
     moss_rest_base_url: str = "https://api.mosi.cn/v1"
@@ -67,12 +75,23 @@ class Settings(BaseSettings):
     def require_https(cls, value: str) -> str:
         return _validate_endpoint(value, "https")
 
-    @field_validator("moss_realtime_url")
+    @field_validator("moss_realtime_url", "qwen_realtime_url")
     @classmethod
     def require_wss(cls, value: str) -> str:
         return _validate_endpoint(value, "wss")
 
     def public(self) -> dict:
+        active_realtime_model = (
+            self.qwen_realtime_model if self.live_provider == "qwen" else self.moss_model
+        )
+        active_realtime_configured = (
+            bool(self.qwen_api_key.get_secret_value())
+            if self.live_provider == "qwen"
+            else bool(self.moss_api_key.get_secret_value())
+        )
+        active_voice = (
+            self.qwen_realtime_voice if self.live_provider == "qwen" else self.moss_voice
+        ) or None
         return {
             "mode": self.mode,
             "models": {
@@ -80,20 +99,23 @@ class Settings(BaseSettings):
                 "vision": self.vision_model,
                 "memory": self.memory_model,
                 "tts": self.qwen_tts_model,
-                "realtime": self.moss_model,
+                "realtime": active_realtime_model,
             },
             "thinking": "disabled",
             "audio": {"format": "pcm_s16le", "sample_rate": self.sample_rate, "channels": 1},
             "moss_live": {
-                "model": self.moss_model,
-                "configured": bool(self.moss_api_key.get_secret_value()),
+                "provider": self.live_provider,
+                "model": active_realtime_model,
+                "configured": active_realtime_configured,
                 "input_audio": {"format": "pcm_s16le", "sample_rate": 16000, "channels": 1},
                 "output_audio": {
                     "format": "pcm_s16le",
-                    "sample_rate": self.moss_output_sample_rate,
+                    "sample_rate": 24000
+                    if self.live_provider == "qwen"
+                    else self.moss_output_sample_rate,
                     "channels": 1,
                 },
-                "voice": self.moss_voice or None,
+                "voice": active_voice,
                 "persona_name": self.moss_persona_name,
                 "memory_scope": self.moss_memory_scope,
                 "delegation": self.moss_delegation,
@@ -102,7 +124,9 @@ class Settings(BaseSettings):
             "configured": {
                 "deepseek": bool(self.deepseek_api_key.get_secret_value()),
                 "qwen_tts": bool(self.qwen_api_key.get_secret_value() and self.qwen_tts_endpoint),
+                "qwen_realtime": bool(self.qwen_api_key.get_secret_value()),
                 "moss_live": bool(self.moss_api_key.get_secret_value()),
+                "live_voice": active_realtime_configured,
             },
             "deferred": ["screen_capture", "tools", "host_integration"],
         }

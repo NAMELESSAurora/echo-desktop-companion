@@ -15,11 +15,14 @@ Key invariants:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import math
+import secrets
 import struct
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -169,6 +172,428 @@ class MossRealtimeUpstream:
             except Exception:
                 pass
             self._ws = None
+
+
+QWEN_BUILTIN_VOICES = [
+    {"id": "longanqian_v3.1", "name": "龙安芊（Qwen 3.1 默认女声）", "source": "qwen_builtin"},
+    {"id": "longanhuan_v3.1", "name": "龙安欢（Qwen 3.1 活泼女声）", "source": "qwen_builtin"},
+    {"id": "longxiaochun_v3.1", "name": "龙小淳（Qwen 3.1 温柔女声）", "source": "qwen_builtin"},
+]
+
+
+class QwenRealtimeUpstream:
+    """DashScope Qwen-Audio-3.1-Realtime-Flash adapter implementing the unified LiveUpstream API.
+
+    Translates our unified frontend protocol into DashScope Realtime WebSocket events and applies
+    a local RMS silence gate with 160ms pre-roll + 1.2s hangover so idle desktop sessions send
+    zero audio input tokens while keeping server_vad and natural barge-in responsive.
+    """
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._ws = None
+        self._reader_task: asyncio.Task | None = None
+        self.inbox: asyncio.Queue[str | bytes | None] = asyncio.Queue()
+        self.closed = False
+        self.session_id = ""
+        self.voice = settings.qwen_realtime_voice or "longanqian_v3.1"
+        self.instructions = ""
+        self.mic_enabled = False
+        self._session_created = asyncio.Event()
+        self._pending_session_updated: asyncio.Future | None = None
+        self._active_run_id: str | None = None
+        self._active_turn_id: str | None = None
+        self._active_text = ""
+        self._active_chunks = 0
+        self._awaiting_playback_done = False
+        self._turn_seq = 0
+        # Silence gate with 160ms pre-roll (4 x 40ms frames) & 1.2s hangover (30 x 40ms frames)
+        self._pre_roll: deque[bytes] = deque(maxlen=4)
+        self._hangover = 0
+
+    async def _emit(self, action: str, data: dict | None = None) -> None:
+        if self.closed:
+            return
+        await self.inbox.put(json.dumps({"action": action, "data": data or {}}, ensure_ascii=False))
+
+    async def _emit_bytes(self, data: bytes) -> None:
+        if self.closed:
+            return
+        await self.inbox.put(data)
+
+    async def connect(self) -> None:
+        key = self.settings.qwen_api_key.get_secret_value()
+        if not key:
+            raise MossLiveError("qwen_not_configured", "未配置 COMPANION_QWEN_API_KEY")
+        query = urlencode({"model": self.settings.qwen_realtime_model})
+        url = f"{self.settings.qwen_realtime_url}?{query}"
+        try:
+            self._ws = await websockets.connect(
+                url,
+                additional_headers={"Authorization": f"Bearer {key}"},
+                open_timeout=15,
+                ping_interval=20,
+                ping_timeout=20,
+                max_size=4 * 1024 * 1024,
+            )
+        except InvalidStatus as exc:
+            status = getattr(exc.response, "status_code", 0)
+            if status in (401, 403):
+                raise MossLiveError("qwen_auth_failed", "百炼 API Key 鉴权失败") from exc
+            if status == 429:
+                raise MossLiveError("qwen_rate_limited", "百炼实时语音并发或限流已满") from exc
+            raise MossLiveError("qwen_handshake_failed", "百炼实时语音握手失败") from exc
+        except (TimeoutError, OSError, Exception) as exc:
+            raise MossLiveError("qwen_unavailable", "无法连接百炼实时语音服务") from exc
+        self._reader_task = asyncio.create_task(self._read_loop(), name="qwen-rt-reader")
+
+    async def _send_raw(self, payload: dict) -> None:
+        if self._ws is None or self.closed:
+            return
+        await self._ws.send(json.dumps(payload, ensure_ascii=False))
+
+    async def _push_session_update(self) -> None:
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        self._pending_session_updated = fut
+        session_cfg: dict = {
+            "modalities": ["audio", "text"],
+            "voice": self.voice,
+            "enable_speech_emotion": True,
+            "input_audio_format": "pcm",
+            "output_audio_format": "pcm",
+            "output_audio": {"language": self.settings.qwen_realtime_language},
+            "turn_detection": {
+                "type": "server_vad",
+                "threshold": 0.5,
+                "silence_duration_ms": 650,
+            },
+            "enable_search": False,
+        }
+        if self.instructions:
+            session_cfg["instructions"] = self.instructions
+        await self._send_raw({"type": "session.update", "session": session_cfg})
+        await asyncio.wait_for(fut, timeout=15.0)
+
+    async def send_json(self, payload: dict) -> None:
+        if self.closed:
+            return
+        action = payload.get("action")
+
+        if action == "attach_session":
+            try:
+                await asyncio.wait_for(self._session_created.wait(), timeout=12.0)
+            except TimeoutError as exc:
+                raise MossLiveError("qwen_handshake_failed", "等待 session.created 超时") from exc
+            await self._emit(
+                "session_attached",
+                {
+                    "session_id": self.session_id or ("qwen-" + uuid.uuid4().hex[:8]),
+                    "memory_scope": "session",
+                    "delegation": "none",
+                },
+            )
+            return
+
+        if action == "change_voice":
+            new_voice = str(payload.get("voice_name") or "").strip()
+            if not new_voice:
+                await self._emit(
+                    "error",
+                    {
+                        "type": "error",
+                        "error": {
+                            "code": "invalid_public_request",
+                            "message": "voice_name required",
+                        },
+                    },
+                )
+                return
+            self.voice = new_voice
+            if self.instructions:
+                await self._push_session_update()
+            await self._emit("voice_changed", {"name": self.voice})
+            return
+
+        if action == "session.update":
+            sess = payload.get("session") or {}
+            persona = sess.get("persona") or {}
+            parts = []
+            if isinstance(persona, dict) and persona.get("prompt"):
+                parts.append(str(persona["prompt"]).strip())
+            if sess.get("instructions"):
+                parts.append(str(sess["instructions"]).strip())
+            self.instructions = "\n\n".join(parts)[:12000]
+            try:
+                await self._push_session_update()
+            except Exception as exc:
+                await self._emit("session.updated", {"error": str(exc), "tools": []})
+                return
+            await self._emit("session.updated", {"error": "", "tools": []})
+            return
+
+        if action == "media.configure":
+            await self._emit(
+                "media.configured",
+                {
+                    "profile": "qwen_realtime",
+                    "input_audio": {
+                        "format": "pcm16",
+                        "sample_rate": 16000,
+                        "channels": 1,
+                        "framing": "s16le",
+                    },
+                    "output_audio": {
+                        "format": "pcm16",
+                        "sample_rate": 24000,
+                        "channels": 1,
+                        "framing": "s16le",
+                    },
+                    "playback": "client",
+                    "error": "",
+                },
+            )
+            return
+
+        if action == "client_context.update":
+            await self._emit("client_context.updated", {"accepted": True, "error": ""})
+            return
+
+        if action == "mic_state":
+            self.mic_enabled = bool(payload.get("enabled", False))
+            if not self.mic_enabled:
+                self._pre_roll.clear()
+                self._hangover = 0
+            return
+
+        if action == "ping":
+            await self._emit(
+                "pong",
+                {
+                    "client_timestamp": payload.get("timestamp", 0),
+                    "server_recv_timestamp": int(time.time() * 1000),
+                },
+            )
+            return
+
+        if action == "playback.chunk.completed":
+            return
+
+        if action == "playback.completed":
+            if (
+                self._awaiting_playback_done
+                and payload.get("run_id") == self._active_run_id
+                and payload.get("turn_id") == self._active_turn_id
+            ):
+                await self._finish_active_turn()
+            return
+
+        if action == "playback.stopped":
+            if payload.get("run_id") == self._active_run_id:
+                self._reset_active_turn()
+            return
+
+    async def send_bytes(self, data: bytes) -> None:
+        if self.closed or not self.mic_enabled or self._ws is None:
+            return
+        gate = self.settings.qwen_silence_gate_rms
+        level = pcm16_rms(data)
+        if gate <= 0.0:
+            await self._send_raw(
+                {"type": "input_audio_buffer.append", "audio": base64.b64encode(data).decode()}
+            )
+            return
+
+        if level >= gate:
+            if self._hangover == 0 and self._pre_roll:
+                for prev in self._pre_roll:
+                    await self._send_raw(
+                        {
+                            "type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(prev).decode(),
+                        }
+                    )
+                self._pre_roll.clear()
+            self._hangover = 30  # ~1.2s trailing window for clean DashScope server_vad commit
+            await self._send_raw(
+                {"type": "input_audio_buffer.append", "audio": base64.b64encode(data).decode()}
+            )
+        elif self._hangover > 0:
+            self._hangover -= 1
+            await self._send_raw(
+                {"type": "input_audio_buffer.append", "audio": base64.b64encode(data).decode()}
+            )
+        else:
+            self._pre_roll.append(data)
+
+    def _reset_active_turn(self) -> None:
+        self._active_run_id = None
+        self._active_turn_id = None
+        self._active_text = ""
+        self._active_chunks = 0
+        self._awaiting_playback_done = False
+
+    async def _finish_active_turn(self) -> None:
+        if self._active_run_id is None:
+            return
+        run_id = self._active_run_id
+        turn_id = self._active_turn_id or ""
+        text = self._active_text
+        self._reset_active_turn()
+        await self._emit(
+            "output.transcript.done",
+            {"run_id": run_id, "turn_id": turn_id, "text": text},
+        )
+        await self._emit(
+            "response.ended",
+            {"run_id": run_id, "turn_id": turn_id, "status": "completed"},
+        )
+
+    async def _read_loop(self) -> None:
+        try:
+            while not self.closed and self._ws is not None:
+                raw = await self._ws.recv()
+                if not isinstance(raw, str):
+                    continue
+                ev = json.loads(raw)
+                etype = str(ev.get("type") or "")
+
+                if etype == "session.created":
+                    sess = ev.get("session") or {}
+                    self.session_id = str(sess.get("id") or "")
+                    self._session_created.set()
+                elif etype == "session.updated":
+                    if self._pending_session_updated and not self._pending_session_updated.done():
+                        self._pending_session_updated.set_result(ev)
+                elif etype == "error":
+                    err = ev.get("error") or {}
+                    msg = str(err.get("message") or "百炼实时服务返回错误")
+                    code = str(err.get("code") or "qwen_protocol_error")
+                    if self._pending_session_updated and not self._pending_session_updated.done():
+                        self._pending_session_updated.set_exception(MossLiveError(code, msg))
+                    await self._emit(
+                        "error", {"type": "error", "error": {"code": code, "message": msg}}
+                    )
+                elif etype == "input_audio_buffer.speech_started":
+                    if self._active_run_id is not None:
+                        run_id = self._active_run_id
+                        turn_id = self._active_turn_id or ""
+                        partial = self._active_text
+                        self._reset_active_turn()
+                        await self._emit(
+                            "response.audio.stop",
+                            {"run_id": run_id, "turn_id": turn_id, "reason": "barge_in"},
+                        )
+                        await self._emit(
+                            "response.interrupted",
+                            {
+                                "run_id": run_id,
+                                "turn_id": turn_id,
+                                "text": partial,
+                                "reason": "barge_in",
+                            },
+                        )
+                    await self._emit("input.speech.started", {})
+                elif etype == "input_audio_buffer.speech_stopped":
+                    await self._emit("input.speech.stopped", {})
+                elif etype == "conversation.item.input_audio_transcription.completed":
+                    text = str(ev.get("transcript") or "").strip()
+                    if text:
+                        self._turn_seq += 1
+                        await self._emit(
+                            "input.transcript.done",
+                            {"text": text, "turn": str(self._turn_seq)},
+                        )
+                elif etype == "response.created":
+                    resp_obj = ev.get("response") or {}
+                    self._turn_seq += 1
+                    self._active_run_id = str(
+                        resp_obj.get("id") or ("qrun-" + uuid.uuid4().hex[:8])
+                    )
+                    self._active_turn_id = f"qturn-{self._turn_seq}"
+                    self._active_text = ""
+                    self._active_chunks = 0
+                    self._awaiting_playback_done = False
+                    await self._emit(
+                        "response.audio.started",
+                        {"run_id": self._active_run_id, "turn_id": self._active_turn_id},
+                    )
+                elif etype == "response.audio.delta":
+                    b64 = ev.get("delta")
+                    if not isinstance(b64, str) or not b64:
+                        continue
+                    if self._active_run_id is None:
+                        self._turn_seq += 1
+                        self._active_run_id = "qrun-" + uuid.uuid4().hex[:8]
+                        self._active_turn_id = f"qturn-{self._turn_seq}"
+                        await self._emit(
+                            "response.audio.started",
+                            {"run_id": self._active_run_id, "turn_id": self._active_turn_id},
+                        )
+                    pcm = base64.b64decode(b64)
+                    if not pcm:
+                        continue
+                    self._active_chunks += 1
+                    dur_ms = max(1, round(len(pcm) / 2 / 24000 * 1000))
+                    await self._emit(
+                        "response.audio.context",
+                        {
+                            "run_id": self._active_run_id,
+                            "turn_id": self._active_turn_id,
+                            "chunk_id": f"q{self._active_chunks}",
+                            "duration_ms": dur_ms,
+                        },
+                    )
+                    await self._emit_bytes(pcm)
+                elif etype in ("response.audio_transcript.delta", "response.text.delta"):
+                    delta = str(ev.get("delta") or "")
+                    if delta and self._active_run_id is not None:
+                        self._active_text += delta
+                        await self._emit(
+                            "output.transcript.updated",
+                            {
+                                "run_id": self._active_run_id,
+                                "turn_id": self._active_turn_id,
+                                "text": self._active_text,
+                            },
+                        )
+                elif etype == "response.done":
+                    if self._active_run_id is not None:
+                        self._awaiting_playback_done = True
+                        await self._emit(
+                            "response.audio.done",
+                            {"run_id": self._active_run_id, "turn_id": self._active_turn_id},
+                        )
+                        if self._active_chunks == 0:
+                            await self._finish_active_turn()
+        except ConnectionClosed:
+            pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+        finally:
+            await self.inbox.put(None)
+
+    async def recv(self) -> str | bytes | None:
+        return await self.inbox.get()
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if self._pending_session_updated and not self._pending_session_updated.done():
+            self._pending_session_updated.cancel()
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+            await asyncio.gather(self._reader_task, return_exceptions=True)
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+        await self.inbox.put(None)
 
 
 class MockMossUpstream:
@@ -580,26 +1005,63 @@ class MossLiveManager:
         self.upstream_factory = upstream_factory or self._default_upstream
         self.slots = asyncio.Semaphore(settings.moss_max_connections)
         self.active_by_session: dict[str, ActiveLiveCall] = {}
+        self.mock_voices: list[dict] = [dict(v) for v in MOCK_VOICES]
+        self._tickets: dict[str, tuple[str, float]] = {}
         self.lock = asyncio.Lock()
+
+    def issue_ticket(self, sid: str, ttl_s: float = 30.0) -> str:
+        now = time.monotonic()
+        for k in [k for k, (_, exp) in self._tickets.items() if exp <= now]:
+            self._tickets.pop(k, None)
+        ticket = secrets.token_urlsafe(24)
+        self._tickets[ticket] = (sid, now + ttl_s)
+        return ticket
+
+    def consume_ticket(self, sid: str, ticket: str | None) -> bool:
+        if not ticket:
+            return False
+        entry = self._tickets.pop(ticket, None)
+        if not entry:
+            return False
+        target_sid, exp = entry
+        return target_sid == sid and time.monotonic() <= exp
 
     @staticmethod
     def _default_upstream(settings: Settings) -> LiveUpstream:
         if settings.mode == "mock":
             return MockMossUpstream(settings)
+        if settings.live_provider == "qwen":
+            return QwenRealtimeUpstream(settings)
         return MossRealtimeUpstream(settings)
 
     async def list_voices(self) -> dict:
         if self.settings.mode == "mock":
-            return {"mode": "mock", "measured": False, "voices": MOCK_VOICES}
+            return {"mode": "mock", "measured": False, "voices": list(self.mock_voices)}
+        if self.settings.live_provider == "qwen":
+            if not self.settings.qwen_api_key.get_secret_value():
+                raise PipelineError(503, "qwen_not_configured")
+            voices = list(QWEN_BUILTIN_VOICES)
+            if self.settings.qwen_realtime_voice:
+                voices.insert(
+                    0,
+                    {
+                        "id": self.settings.qwen_realtime_voice,
+                        "name": f"{self.settings.moss_persona_name}（已克隆 · Qwen 3.1）",
+                        "source": "qwen_cloned",
+                    },
+                )
+            return {"mode": "live", "provider": "qwen", "measured": True, "voices": voices}
         key = self.settings.moss_api_key.get_secret_value()
         if not key:
             raise PipelineError(503, "moss_not_configured")
-        url = f"{self.settings.moss_rest_base_url}/audio/speakers"
+        url = f"{self.settings.moss_rest_base_url}/audio/voices"
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10, connect=5), follow_redirects=False
             ) as http:
-                resp = await http.get(url, headers={"Authorization": f"Bearer {key}"})
+                resp = await http.get(
+                    url, params={"limit": 50}, headers={"Authorization": f"Bearer {key}"}
+                )
             if resp.status_code in (401, 403):
                 raise PipelineError(502, "moss_auth_failed")
             if resp.status_code == 429:
@@ -609,11 +1071,110 @@ class MossLiveManager:
             body = resp.json()
             raw = body.get("data") if isinstance(body, dict) else []
             voices = [
-                {"id": item.get("id"), "name": item.get("name", item.get("id")), "source": "moss"}
+                {"id": item.get("id"), "name": item.get("name") or item.get("id"), "source": "moss"}
                 for item in (raw or [])
                 if isinstance(item, dict) and item.get("id")
             ]
             return {"mode": "live", "measured": True, "voices": voices}
+        except PipelineError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise PipelineError(504, "moss_timeout") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PipelineError(502, "moss_unavailable") from exc
+
+    async def clone_voice(
+        self,
+        audio_bytes: bytes,
+        filename: str = "sample.wav",
+        name: str = "",
+        description: str = "",
+    ) -> dict:
+        if not audio_bytes:
+            raise PipelineError(422, "empty_audio_sample")
+        if len(audio_bytes) > 10 * 1024 * 1024:
+            raise PipelineError(413, "audio_sample_too_large")
+
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        mime_map = {
+            "wav": "audio/wav",
+            "mp3": "audio/mpeg",
+            "m4a": "audio/mp4",
+            "flac": "audio/flac",
+        }
+        if ext not in mime_map:
+            raise PipelineError(422, "unsupported_audio_sample_format")
+
+        head = audio_bytes[:12]
+        valid_magic = (
+            (ext == "wav" and head[:4] == b"RIFF" and head[8:12] == b"WAVE")
+            or (ext == "flac" and head[:4] == b"fLaC")
+            or (ext == "m4a" and head[4:8] == b"ftyp")
+            or (
+                ext == "mp3"
+                and (
+                    head[:3] == b"ID3"
+                    or (len(head) >= 2 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)
+                )
+            )
+        )
+        if not valid_magic:
+            raise PipelineError(422, "invalid_audio_sample_header")
+
+        clean_name = name.strip()[:80] or f"cloned-{uuid.uuid4().hex[:6]}"
+        clean_desc = description.strip()[:240]
+
+        if self.settings.mode == "mock":
+            voice = {
+                "id": "mock-voice-" + uuid.uuid4().hex[:10],
+                "object": "audio.voice",
+                "name": clean_name,
+                "created_at": int(time.time()),
+                "source": "mock_clone",
+            }
+            self.mock_voices.insert(0, voice)
+            return {"mode": "mock", "measured": False, "voice": voice}
+
+        key = self.settings.moss_api_key.get_secret_value()
+        if not key:
+            raise PipelineError(503, "moss_not_configured")
+
+        url = f"{self.settings.moss_rest_base_url}/audio/voices"
+        form_data: dict[str, str] = {"name": clean_name}
+        if clean_desc:
+            form_data["description"] = clean_desc
+        safe_filename = f"sample.{ext}"
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(60, connect=10), follow_redirects=False
+            ) as http:
+                resp = await http.post(
+                    url,
+                    headers={"Authorization": f"Bearer {key}"},
+                    data=form_data,
+                    files={"audio_sample": (safe_filename, audio_bytes, mime_map[ext])},
+                )
+            if resp.status_code in (401, 403):
+                raise PipelineError(502, "moss_auth_failed")
+            if resp.status_code == 429:
+                raise PipelineError(429, "moss_rate_limited")
+            if resp.status_code >= 400:
+                raise PipelineError(502, "moss_http_error")
+            body = resp.json()
+            vid = body.get("id") if isinstance(body, dict) else None
+            if not vid:
+                raise PipelineError(502, "invalid_provider_response")
+            return {
+                "mode": "live",
+                "measured": True,
+                "voice": {
+                    "id": vid,
+                    "object": body.get("object", "audio.voice"),
+                    "name": body.get("name") or clean_name,
+                    "created_at": body.get("created_at"),
+                    "source": "moss",
+                },
+            }
         except PipelineError:
             raise
         except httpx.TimeoutException as exc:
@@ -638,18 +1199,22 @@ class MossLiveManager:
         if not session:
             await reject(4404, "session_not_found", "当前会话卷不存在")
             return
-        if self.settings.mode == "live" and not self.settings.moss_api_key.get_secret_value():
-            await reject(4503, "moss_not_configured", "未配置 COMPANION_MOSS_API_KEY")
-            return
-        if (
-            self.settings.mode == "live"
-            and self.settings.moss_memory_scope == "user"
-            and not self.settings.moss_user_id
-        ):
-            await reject(
-                4503, "moss_user_id_required", "user 记忆范围需要配置 COMPANION_MOSS_USER_ID"
-            )
-            return
+        if self.settings.mode == "live":
+            if self.settings.live_provider == "qwen":
+                if not self.settings.qwen_api_key.get_secret_value():
+                    await reject(4503, "qwen_not_configured", "未配置 COMPANION_QWEN_API_KEY")
+                    return
+            else:
+                if not self.settings.moss_api_key.get_secret_value():
+                    await reject(4503, "moss_not_configured", "未配置 COMPANION_MOSS_API_KEY")
+                    return
+                if self.settings.moss_memory_scope == "user" and not self.settings.moss_user_id:
+                    await reject(
+                        4503,
+                        "moss_user_id_required",
+                        "user 记忆范围需要配置 COMPANION_MOSS_USER_ID",
+                    )
+                    return
 
         async with self.lock:
             if sid in self.active_by_session:
@@ -736,7 +1301,12 @@ class MossLiveManager:
         await upstream.send_json(attach)
         attached = await self._wait_for_action(upstream, "session_attached")
 
-        chosen_voice = (voice_override or self.settings.moss_voice or "").strip()
+        default_voice = (
+            self.settings.qwen_realtime_voice
+            if self.settings.live_provider == "qwen"
+            else self.settings.moss_voice
+        )
+        chosen_voice = (voice_override or default_voice or "").strip()
         active_voice: str | None = None
         if chosen_voice:
             await upstream.send_json({"action": "change_voice", "voice_name": chosen_voice})
@@ -785,9 +1355,15 @@ class MossLiveManager:
             "sample_rate": self.settings.moss_output_sample_rate,
             "channels": 1,
         }
+        active_model = (
+            self.settings.qwen_realtime_model
+            if self.settings.live_provider == "qwen"
+            else self.settings.moss_model
+        )
         return {
             "mode": self.settings.mode,
-            "model": self.settings.moss_model,
+            "provider": self.settings.live_provider,
+            "model": active_model,
             "remote_session_id": attached.get("session_id"),
             "memory_scope": attached.get("memory_scope", self.settings.moss_memory_scope),
             "delegation": attached.get("delegation", self.settings.moss_delegation),

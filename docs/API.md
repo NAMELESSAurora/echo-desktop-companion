@@ -23,8 +23,10 @@
 | GET | `/v1/sessions/{sid}/memory` | 查看同角色已确认事实 |
 | PATCH | `/v1/memory/facts/{fid}` | 修改事实，失效旧上下文 |
 | DELETE | `/v1/memory/facts/{fid}` | 删除事实，失效旧上下文 |
-| GET | `/v1/moss/voices` | 列出 MOSS-Live 可用音色（mock 返回官方示例目录，live 代理 `/v1/audio/speakers`） |
-| WS | `/v1/sessions/{sid}/live` | MOSS-Live-1.0 全双工实时语音通道（可选 `?voice=&tz=`，与 HTTP/SSE 轨并行共存） |
+| GET | `/v1/moss/voices` | 列出当前实时语音引擎可用音色（Qwen 返回内置＋已配置的克隆音色；MOSS 代理 `GET /v1/audio/voices`） |
+| POST | `/v1/moss/voices/clone` | 上传 ≤10 MB `wav/mp3/m4a/flac` 参考音频克隆音色（MOSS 代理 `POST /v1/audio/voices`） |
+| POST | `/v1/live/ticket` | 为指定 `?sid=` 签发 30 秒一次性 WebSocket 握手票据（供浏览器 `live` 模式配合 Bearer 使用，避免在 URL 暴露长期令牌） |
+| WS | `/v1/sessions/{sid}/live` | 全双工实时语音通道（默认 Qwen 3.1 Realtime Flash，可选 MOSS-Live-1.0；可选 `?voice=&tz=&ticket=`，与 HTTP/SSE 轨并行共存） |
 
 ## 创建文字轮次
 
@@ -94,14 +96,15 @@ organize 请求体为 `{}` 或 `{"message_limit":30}`。返回 queued 任务，�
 
 accepted 的事实进入同 character_id 的后续会话。修改和删除保守地失效该角色全部旧模型上下文，原始聊天记录仍可从轮次结果查阅。此行为不是完整个人数据擦除，也没有语义级查重或所有同义事实联动删除。
 
-## MOSS-Live-1.0 实时语音轨（双轨并行）
+## 实时语音轨（双引擎：Qwen 3.1 Realtime Flash / MOSS-Live-1.0）
 
-`WS /v1/sessions/{sid}/live` 与现有 HTTP/SSE 文本＋单帧看屏＋SQLite 记忆管线并行共存，不替换原有接口：
+`WS /v1/sessions/{sid}/live` 与现有 HTTP/SSE 文本＋单帧看屏＋SQLite 记忆管线并行共存，不替换原有接口，通过 `COMPANION_LIVE_PROVIDER=qwen|moss`（默认 `qwen`）统一适配：
 
-- **显式拨通，绝不自动连接**：MOSS-Live 从 `session_attached` 起按分钟计费（静默期同样计费），仅在客户端主动建立 WebSocket 时连上游。
-- **鉴权与安全边界**：握手校验 `Origin`（防跨站 WebSocket 劫持）与 `Authorization: Bearer`（mock 模式亦支持同源 `companion_mock_ui` Cookie）；`COMPANION_MOSS_API_KEY` 仅保存在后端。
-- **后端自动初始化顺序**：`attach_session` → 可选 `change_voice` → `session.update`（注入会话 `system_prompt` 与该角色已确认的 SQLite 长期事实）→ `media.configure`（`playback: "client"`、`output_audio: pcm16@24kHz`）→ 可选 `client_context.update(time_zone)` → 向客户端发送 `live.ready`。
-- **上行与下行音频**：客户端以二进制帧发送 16 kHz 单声道 PCM S16LE（含说话后静默帧以便服务端断句）；服务端在每个下行二进制 PCM 帧前发送 `response.audio.context(run_id, turn_id, chunk_id, duration_ms)`，客户端播完每块回复 `playback.chunk.completed`，收到 `response.audio.done` 且播完最后一块回复 `playback.completed`，收到 `response.audio.stop` 立即停播并先确认已播完片段再回复 `playback.stopped(played_audio_ms)`。
+- **显式拨通，绝不自动连接**：仅在客户端主动建立 WebSocket 时连上游。
+- **鉴权与安全边界**：握手严格校验 `Origin`（防跨站 WebSocket 劫持），凭证支持 `Authorization: Bearer`、一次性 `?ticket=`（由 `POST /v1/live/ticket?sid=...` 在 30 秒内单次消费），以及 `mock` 模式下的同源 `companion_mock_ui` Cookie；所有云端 API Key 仅保存在后端。
+- **Qwen 3.1 Realtime Flash 模式（默认）**：后端连接 `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`，自动下发 `session.update`（注入 `system_prompt` 与角色 SQLite 长期事实、自定义/内置音色、`fun-asr` 语音识别、`server_vad` 与情感语调），并将 DashScope 事件翻译为统一的前端协议帧；上行 16 kHz PCM16 经 **160 ms 预缓冲 + 1.2 s 拖尾本地 RMS 静默门控**（`COMPANION_QWEN_SILENCE_GATE_RMS`，默认 `0.014`），静默期间不上行音频包，大幅降低待机费用。
+- **MOSS-Live-1.0 模式（可选）**：按官方顺序执行 `attach_session` → 可选 `change_voice` → `session.update` → `media.configure`（`playback: "client"`、`output_audio: pcm16@24kHz`）→ 可选 `client_context.update(time_zone)` → 向客户端发送 `live.ready`。
+- **上行与下行音频**：客户端以二进制帧发送 16 kHz 单声道 PCM S16LE；服务端在每个下行二进制 PCM 帧前发送 `response.audio.context(run_id, turn_id, chunk_id, duration_ms)`，客户端播完每块回复 `playback.chunk.completed`，收到 `response.audio.done` 且播完最后一块回复 `playback.completed`，收到 `response.audio.stop` 立即停播并先确认已播完片段再回复 `playback.stopped(played_audio_ms)`。
 - **字幕语义与记忆回流**：`input/output.transcript.updated|done|revised` 为完整文本覆盖语义（非增量追加）；每次正常结束（`response.ended(status="completed")`）的语音轮次会自动写入本地 SQLite `turns` / `messages`，可直接复用 `/v1/sessions/{sid}/memory/organize` 提取长期事实。
 - **费用与并发保护**：同会话仅允许一路通话（`4409 live_session_busy`），全局默认上限 1 路（最高 3 路，`4429 live_capacity_full`），连续静默达 `COMPANION_MOSS_IDLE_TIMEOUT_S`（默认 180 秒，纯静默音频帧和 `ping` 均不续期）时发送 `live.idle_timeout` 并以关闭码 `4000` 自动挂断。
 

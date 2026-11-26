@@ -125,7 +125,7 @@ export class MossLiveClient {
   get hasMic(): boolean { return this.micAvailable; }
   get ready(): MossLiveReady | null { return this.readyInfo; }
 
-  async connect(sessionId: string, voice?: string): Promise<void> {
+  async connect(sessionId: string, voice?: string, ticket?: string): Promise<void> {
     if (this.isActive) return;
     this.setState('connecting', null);
     this.lastErrorCode = '';
@@ -142,6 +142,7 @@ export class MossLiveClient {
       if (tz) params.set('tz', tz);
     } catch { /* ignore */ }
     if (voice) params.set('voice', voice);
+    if (ticket) params.set('ticket', ticket);
 
     const loc = typeof location !== 'undefined' ? location : { protocol: 'http:', host: '127.0.0.1:8765' };
     const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';

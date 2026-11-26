@@ -103,7 +103,7 @@
 
         <div id="hud-status-pill" class="hud-pill hud-status-pill lg-pure-glass">
           <span id="connection-status" class="connection-text" role="status">正在接通</span>
-          <span class="mode-badge"><span></span>离线演练</span>
+          <span id="mode-badge" class="mode-badge"><span></span><b id="mode-badge-text">离线演练</b></span>
           <button id="new-session" type="button" class="hud-icon-btn" title="新起一卷会话" aria-label="新起一卷会话" disabled>
             <svg class="icon"><use href="#i-plus" /></svg>
           </button>
@@ -138,6 +138,12 @@
         <button id="dismiss-notice" type="button" aria-label="关闭提示">×</button>
       </div>
 
+      <form id="live-auth-bar" class="live-auth-bar lg-card" hidden>
+        <span class="mono live-auth-label">LIVE ACCESS TOKEN</span>
+        <input id="live-token-input" type="password" autocomplete="off" placeholder="粘贴本机 api-token（系统托盘可一键复制）" aria-label="本地访问令牌" />
+        <button id="live-token-submit" type="submit" class="send-button compact">以本地令牌接入</button>
+      </form>
+
       <div class="stage-grid">
         <!-- Primary Stage: Live 3D Presence + Dialogue Stream + Composer -->
         <section id="conversation-panel" class="conversation-panel lg-card" aria-label="光蚀对话舞台">
@@ -154,7 +160,7 @@
                 <span>语音通话</span>
               </button>
               <button id="toggle-stage-focus" type="button" class="micro-pill-btn" aria-pressed="false">展开幕布</button>
-              <span class="pill-soft mono">MOCK PIPELINE</span>
+              <span id="pipeline-badge" class="pill-soft mono">MOCK PIPELINE</span>
             </div>
           </div>
 
@@ -375,8 +381,8 @@
               </div>
               <div class="model-ribbon mono">
                 <span>DEEPSEEK FLASH</span>
-                <span>QWEN AUDIO 3.1</span>
-                <span>MOSS-LIVE 1.0</span>
+                <span>QWEN 3.1 REALTIME</span>
+                <span>MOSS-LIVE</span>
               </div>
               <details class="event-details">
                 <summary>

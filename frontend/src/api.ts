@@ -9,14 +9,39 @@ import type {
   TurnPayload,
 } from './types';
 
+const TOKEN_STORAGE_KEY = 'companion:local-bearer';
+let activeBearerToken = '';
+
+try {
+  if (typeof sessionStorage !== 'undefined') {
+    activeBearerToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  }
+} catch { /* ignore storage restrictions */ }
+
+export function setLocalBearerToken(token: string) {
+  activeBearerToken = token.trim();
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (activeBearerToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, activeBearerToken);
+      else sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch { /* ignore */ }
+}
+
+export function getLocalBearerToken(): string {
+  return activeBearerToken;
+}
+
 export class ApiError extends Error {
   constructor(public code: string, public status = 0) { super(code); }
 }
 
 export async function request<T>(method: string, path: string, body?: unknown, keepalive = false): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Companion-UI': '1' };
+  if (activeBearerToken) headers.Authorization = `Bearer ${activeBearerToken}`;
   const response = await fetch(path, {
     method, credentials: 'same-origin', keepalive,
-    headers: { 'Content-Type': 'application/json', 'X-Companion-UI': '1' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
@@ -78,6 +103,9 @@ export interface TurnApi {
 
 export class BackendApi implements TurnApi {
   async connect(): Promise<BackendConfig> {
+    if (activeBearerToken) {
+      return request<BackendConfig>('GET', '/v1/config');
+    }
     await request('POST', '/ui/connect', {});
     const config = await request<BackendConfig>('GET', '/v1/config');
     if (config.mode !== 'mock') throw new ApiError('test_ui_requires_mock');
@@ -113,11 +141,16 @@ export class BackendApi implements TurnApi {
   deleteFact(fid: string): Promise<unknown> {
     return request('DELETE', `/v1/memory/facts/${fid}`);
   }
-  mossVoices(): Promise<{ mode: string; measured: boolean; voices: MossVoice[] }> {
+  mossVoices(): Promise<{ mode: string; provider?: string; measured: boolean; voices: MossVoice[] }> {
     return request('GET', '/v1/moss/voices');
   }
+  liveTicket(sid: string): Promise<{ ticket: string; expires_in_s: number }> {
+    return request('POST', `/v1/live/ticket?sid=${encodeURIComponent(sid)}`, {});
+  }
   async *events(path: string, signal: AbortSignal): AsyncGenerator<PipelineEvent> {
-    const response = await fetch(path, { credentials: 'same-origin', signal });
+    const headers: Record<string, string> = {};
+    if (activeBearerToken) headers.Authorization = `Bearer ${activeBearerToken}`;
+    const response = await fetch(path, { credentials: 'same-origin', headers, signal });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new ApiError(data.error?.code ?? 'stream_failed', response.status);
@@ -133,7 +166,12 @@ export function explainError(error: unknown): string {
   }
   const code = error instanceof ApiError ? error.code : error instanceof Error ? error.message : '';
   const known: Record<string, string> = {
-    test_ui_requires_mock: '当前舞台仅在离线演练模式（mock）下建立同源连接，请将后端切回 mock 后重试。',
+    test_ui_requires_mock: '当前后端处于真实在线（live）模式：请粘贴本机 .local/api-token（或在系统托盘点击「复制本地访问令牌」）后接入。',
+    qwen_not_configured: '后端尚未配置 COMPANION_QWEN_API_KEY，请在 .env 中填入百炼密钥后重启。',
+    qwen_auth_failed: '阿里云百炼 API Key 鉴权失败，请检查 COMPANION_QWEN_API_KEY。',
+    qwen_rate_limited: '阿里云百炼实时语音并发已满或触发限流，请稍后再试。',
+    qwen_unavailable: '无法连通阿里云百炼实时语音服务，请检查网络设置。',
+    qwen_handshake_failed: '阿里云百炼实时语音握手超时，请重试。',
     invalid_local_token: '本地连接凭证已失效，请点击顶部重连按钮恢复。',
     same_origin_required: '请通过本地服务地址打开本舞台，不要直接从文件系统打开 HTML。',
     screen_permission_mismatch: '视窗授权已变更，请撤回视野后重新择取窗口。',

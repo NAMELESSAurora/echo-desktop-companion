@@ -78,8 +78,9 @@ def create_app(
             return JSONResponse({"error": {"code": "origin_not_allowed"}}, status_code=403)
         length = request.headers.get("content-length")
         if length:
+            max_len = 10_500_000 if request.url.path == "/v1/moss/voices/clone" else 3_000_000
             try:
-                too_large = int(length) > 3_000_000
+                too_large = int(length) > max_len
             except ValueError:
                 return JSONResponse({"error": {"code": "invalid_content_length"}}, status_code=400)
             if too_large:
@@ -282,12 +283,32 @@ def create_app(
     async def moss_voices():
         return await app.state.live.list_voices()
 
+    @app.post("/v1/moss/voices/clone", status_code=201, dependencies=auth)
+    async def moss_clone_voice(
+        request: Request,
+        name: str = "",
+        filename: str = "sample.wav",
+        description: str = "",
+    ):
+        audio_bytes = await request.body()
+        return await app.state.live.clone_voice(
+            audio_bytes, filename=filename, name=name, description=description
+        )
+
+    @app.post("/v1/live/ticket", dependencies=auth)
+    async def live_ticket(sid: str):
+        session = await app.state.store.session(sid)
+        if not session:
+            raise PipelineError(404, "session_not_found")
+        return {"ticket": app.state.live.issue_ticket(sid), "expires_in_s": 30}
+
     @app.websocket("/v1/sessions/{sid}/live")
     async def moss_live_socket(
         websocket: WebSocket,
         sid: str,
         voice: str | None = None,
         tz: str | None = None,
+        ticket: str | None = None,
     ):
         origin = websocket.headers.get("origin")
         scheme = "https" if websocket.url.scheme == "wss" else "http"
@@ -304,7 +325,8 @@ def create_app(
         mock_ui_ok = config.mode == "mock" and secrets.compare_digest(
             ui_cookie.encode(), app.state.ui_token.encode()
         )
-        if not bearer_ok and not mock_ui_ok:
+        ticket_ok = app.state.live.consume_ticket(sid, ticket)
+        if not bearer_ok and not mock_ui_ok and not ticket_ok:
             await websocket.close(code=4401, reason="invalid_local_token")
             return
         await app.state.live.handle_websocket(websocket, sid, voice_override=voice, time_zone=tz)

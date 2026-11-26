@@ -2,15 +2,20 @@ from starlette.responses import JSONResponse
 
 
 class BodyLimitMiddleware:
-    """Bound JSON bodies, including requests without Content-Length."""
+    """Bound request bodies, including requests without Content-Length."""
 
-    def __init__(self, app, limit=3_000_000):
-        self.app, self.limit = app, limit
+    def __init__(self, app, limit=3_000_000, voice_clone_limit=10_500_000):
+        self.app = app
+        self.limit = limit
+        self.voice_clone_limit = voice_clone_limit
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in ("POST", "PUT", "PATCH"):
             await self.app(scope, receive, send)
             return
+        max_bytes = (
+            self.voice_clone_limit if scope.get("path") == "/v1/moss/voices/clone" else self.limit
+        )
         chunks, size = [], 0
         while True:
             message = await receive()
@@ -18,7 +23,7 @@ class BodyLimitMiddleware:
                 return
             block = message.get("body", b"")
             size += len(block)
-            if size > self.limit:
+            if size > max_bytes:
                 response = JSONResponse({"error": {"code": "request_too_large"}}, status_code=413)
                 await response(scope, receive, send)
                 return

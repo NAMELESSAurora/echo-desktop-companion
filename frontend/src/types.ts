@@ -2,8 +2,15 @@ export interface BackendConfig {
   mode: 'mock' | 'live';
   models: { dialogue: string; vision: string; memory: string; tts: string; realtime?: string };
   audio: { format: string; sample_rate: number; channels: number };
-  configured?: { deepseek: boolean; qwen_tts: boolean; moss_live: boolean };
+  configured?: {
+    deepseek: boolean;
+    qwen_tts: boolean;
+    qwen_realtime?: boolean;
+    moss_live: boolean;
+    live_voice?: boolean;
+  };
   moss_live?: {
+    provider?: 'qwen' | 'moss';
     model: string;
     configured: boolean;
     input_audio: { format: string; sample_rate: number; channels: number };
@@ -25,6 +32,7 @@ export interface MossVoice {
 
 export interface MossLiveReady {
   mode: 'mock' | 'live';
+  provider?: 'qwen' | 'moss';
   model: string;
   remote_session_id: string | null;
   memory_scope: string;

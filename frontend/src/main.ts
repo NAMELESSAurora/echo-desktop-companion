@@ -1,6 +1,6 @@
 import './style.css';
 import './avatar.css';
-import { ApiError, BackendApi, explainError } from './api';
+import { ApiError, BackendApi, explainError, getLocalBearerToken, setLocalBearerToken } from './api';
 import { PcmPlayer } from './audio';
 import type { AudioStatus } from './audio';
 import { AvatarStage } from './avatar';
@@ -402,9 +402,11 @@ function message(role: 'user' | 'assistant', text: string, withScreen = false, c
   const header = document.createElement('div'); header.className = 'message-header';
   const badge = document.createElement('span'); badge.className = 'message-avatar'; badge.textContent = role === 'user' ? '你' : '荠';
   const name = document.createElement('span');
+  const liveTag = backendConfig?.moss_live?.provider === 'qwen' ? '七草荠 · QWEN 3.1' : '七草荠 · MOSS-LIVE';
+  const httpTag = backendConfig?.mode === 'live' ? '七草荠 · 实时' : '七草荠 · 离线演练';
   name.textContent = role === 'user'
     ? (channel === 'live' ? '来访者 · LIVE 语音' : '来访者 · YOU')
-    : (channel === 'live' ? '七草荠 · MOSS-LIVE' : '七草荠 · 离线演练');
+    : (channel === 'live' ? liveTag : httpTag);
   const time = document.createElement('time'); time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   header.append(badge, name, time);
   const content = document.createElement('div'); content.className = 'message-content'; content.textContent = text;
@@ -474,14 +476,21 @@ const liveClient = new MossLiveClient(player, {
   onState(next, readyInfo) {
     liveState = next;
     if (next === 'connecting') {
-      liveCallStateEl.textContent = '正在握手 MOSS-Live…';
-      el('turn-status').textContent = '正在拨通全双工声道';
+      const provName = backendConfig?.moss_live?.provider === 'qwen' ? 'Qwen 3.1 实时语音' : 'MOSS-Live';
+      liveCallStateEl.textContent = `正在握手 ${provName}…`;
+      el('turn-status').textContent = '正在拨通实时语音声道';
       el('flow-state').textContent = 'WS 握手';
       stopLiveTimer();
     } else if (next === 'connected') {
-      const modeTag = readyInfo?.mode === 'mock' ? '离线全双工演练' : 'MOSS-Live 在线';
+      const modeTag = readyInfo?.mode === 'mock'
+        ? '离线全双工演练'
+        : readyInfo?.provider === 'qwen'
+          ? 'Qwen 3.1 实时在线（静默门控省流）'
+          : 'MOSS-Live 在线';
       liveCallStateEl.textContent = `${modeTag} · 随时可开口`;
-      el('turn-status').textContent = 'MOSS-Live 全双工通话中';
+      el('turn-status').textContent = readyInfo?.provider === 'qwen' && readyInfo?.mode === 'live'
+        ? 'Qwen 3.1 七草荠实时通话中'
+        : '实时全双工语音通话中';
       el('flow-state').textContent = '全双工在线';
       if (readyInfo?.voice && [...liveVoiceSelect.options].some(o => o.value === readyInfo.voice)) {
         liveVoiceSelect.value = readyInfo.voice;
@@ -617,7 +626,12 @@ async function toggleLiveCall() {
   }
   coordinator.cancel();
   try {
-    await liveClient.connect(session.id, liveVoiceSelect.value || undefined);
+    let ticket: string | undefined;
+    if (backendConfig?.mode === 'live' || getLocalBearerToken()) {
+      const res = await api.liveTicket(session.id);
+      ticket = res.ticket;
+    }
+    await liveClient.connect(session.id, liveVoiceSelect.value || undefined, ticket);
   } catch (error) {
     showError(error);
     actions();
@@ -651,7 +665,11 @@ coordinator = new TurnCoordinator(api, {
     logEvent(event);
     const data = event.data;
     if (event.type === 'turn.started') {
-      if (data.mode !== 'mock') { coordinator.cancel(); showError(new ApiError('test_ui_requires_mock')); return; }
+      if (data.mode !== 'mock' && !getLocalBearerToken()) {
+        coordinator.cancel();
+        showError(new ApiError('test_ui_requires_mock'));
+        return;
+      }
       player.begin(event.turn_id);
       try { player.configure(Number(data.sample_rate), Number(data.channels), String(data.audio_format)); }
       catch (error) { showError(error); }
@@ -853,6 +871,11 @@ async function connect() {
   try {
     backendConfig = await api.connect();
     if (generation !== connectionGeneration) return;
+    el('live-auth-bar').hidden = true;
+    const isLive = backendConfig.mode === 'live';
+    const isQwen = backendConfig.moss_live?.provider !== 'moss';
+    el('mode-badge-text').textContent = isLive ? (isQwen ? '实时 · QWEN' : '实时 · MOSS') : '离线演练';
+    el('pipeline-badge').textContent = isLive ? (isQwen ? 'QWEN REALTIME' : 'MOSS-LIVE') : 'MOCK PIPELINE';
     if (session) {
       try { session = await api.restoreSession(session.id); }
       catch (error) {
@@ -871,9 +894,23 @@ async function connect() {
     void refreshMossVoices();
   } catch (error) {
     if (generation !== connectionGeneration) return;
+    if (error instanceof ApiError && (error.code === 'test_ui_requires_mock' || error.status === 401)) {
+      if (error.status === 401 && getLocalBearerToken()) setLocalBearerToken('');
+      el('live-auth-bar').hidden = false;
+    }
     el('connection-status').textContent = '尚未接通'; showError(error); actions();
   }
 }
+
+el('live-auth-bar').addEventListener('submit', event => {
+  event.preventDefault();
+  const tokInput = el<HTMLInputElement>('live-token-input');
+  const val = tokInput.value.trim();
+  if (!val) return;
+  setLocalBearerToken(val);
+  tokInput.value = '';
+  void connect();
+});
 
 function send() {
   if (!ready || screenBusy || !session || !input.value.trim()) return;
