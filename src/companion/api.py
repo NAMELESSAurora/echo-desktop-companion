@@ -66,7 +66,7 @@ def create_app(
             await bundle.close()
             await store.close()
 
-    app = FastAPI(title="Desktop Companion Pipeline", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Desktop Companion Pipeline", version="0.3.0", lifespan=lifespan)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
 
@@ -121,7 +121,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "mode": config.mode, "version": "0.1.0"}
+        return {"status": "ok", "mode": config.mode, "version": "0.3.0"}
 
     @app.post("/ui/connect", include_in_schema=False)
     async def connect_test_ui(request: Request):
@@ -307,6 +307,7 @@ def create_app(
         websocket: WebSocket,
         sid: str,
         voice: str | None = None,
+        lang: str | None = None,
         tz: str | None = None,
         ticket: str | None = None,
     ):
@@ -329,7 +330,9 @@ def create_app(
         if not bearer_ok and not mock_ui_ok and not ticket_ok:
             await websocket.close(code=4401, reason="invalid_local_token")
             return
-        await app.state.live.handle_websocket(websocket, sid, voice_override=voice, time_zone=tz)
+        await app.state.live.handle_websocket(
+            websocket, sid, voice_override=voice, language_override=lang, time_zone=tz
+        )
 
     app.mount("/ui/assets", StaticFiles(directory=web_dir / "assets", check_dir=False))
     return app

@@ -123,6 +123,8 @@ class Settings(BaseSettings):
                     "channels": 1,
                 },
                 "voice": active_voice,
+                "language": self.qwen_realtime_language,
+                "supported_languages": ["zh", "ja", "en"],
                 "persona_name": self.moss_persona_name,
                 "memory_scope": self.moss_memory_scope,
                 "delegation": self.moss_delegation,

@@ -45,9 +45,12 @@ out vec4 fragColor;
 uniform sampler2D uTexPale;
 uniform sampler2D uTexDeep;
 uniform sampler2D uTexWc;
+uniform sampler2D uTexWcPrev;
 uniform float uPaleReady;
 uniform float uDeepReady;
 uniform float uWcReady;
+uniform float uWcPrevReady;
+uniform float uTransition;
 
 uniform float uW0;
 uniform float uW1;
@@ -292,10 +295,27 @@ void main() {
   vec3 wcCol = vec3(0.0);
   if (uW2 > 0.002) {
     vec2 wcPan = vec2((uPointer.x - 0.5) * 0.022 + sin(uTime * 0.055) * 0.007, (uPointer.y - 0.5) * 0.016 - uScroll * 0.018);
-    wcCol = sampleWatercolour(uTexWc, uWcReady, vUv, wcPan);
+    vec3 curWc = sampleWatercolour(uTexWc, uWcReady, vUv, wcPan);
+    if (uWcPrevReady > 0.002 && uWcReady < 0.998) {
+      vec3 prevWc = sampleWatercolour(uTexWcPrev, uWcPrevReady, vUv, wcPan);
+      // Soft radial feathered cross-dissolve from previous watercolour to newly baked sky
+      float rad = length((vUv - vec2(0.55, 0.42)) * vec2(aspect, 1.0));
+      float mask = smoothstep(rad * 0.42 - 0.25, rad * 0.42 + 0.35, uWcReady * 1.35);
+      wcCol = mix(prevWc, curWc, mask);
+    } else {
+      wcCol = curWc;
+    }
   }
 
   vec3 sky = paleCol * uW0 + deepCol * uW1 + wcCol * uW2;
+
+  // Silky optical atmospheric shimmer during sky transitions (never muddies or inverts)
+  if (uTransition > 0.002) {
+    float sweep = exp(-pow((vUv.x * 0.85 + (1.0 - vUv.y) * 0.45 - (1.15 - uTransition * 0.95)) * 4.2, 2.0));
+    vec3 prism = mix(uFoilA, uFoilB, clamp(vUv.x * 0.75 + vUv.y * 0.25, 0.0, 1.0));
+    vec3 sheen = mix(vec3(1.0, 0.96, 0.92), prism, 0.55);
+    sky = mix(sky, min(vec3(1.0), sky + sheen * 0.28), sweep * uTransition * 0.55);
+  }
 
   float darkWeight = clamp(uW1 + uW2, 0.0, 1.0);
   if (darkWeight > 0.01 && ray.y > 0.0) {
@@ -659,6 +679,7 @@ export class StageLiquidGlassEngine {
   private atmosphere: CompanionAtmosphere = MOOD_ATMOSPHERES.idle;
   private tier: PerformanceTier = 'high';
   private foilImpulse = 0.25;
+  private transitionPulse = 0;
   private gpuActive = false;
   private teardownGl: ((loseContext: boolean) => void) | null = null;
   private visibilityListener: (() => void) | null = null;
@@ -673,9 +694,12 @@ export class StageLiquidGlassEngine {
   ) {}
 
   setSky(sky: StageSkyId) {
+    if (this.sky !== sky) {
+      this.transitionPulse = 1.0;
+    }
     this.sky = sky;
     this.fallbackEl.dataset.sky = sky;
-    this.triggerFoil(0.95);
+    this.triggerFoil(0.85);
   }
 
   setPreset(preset: GlassPresetId) {
@@ -785,7 +809,8 @@ export class StageLiquidGlassEngine {
 
     const paleTarget = createTarget(gl, TWO_W, TWO_H, gl.REPEAT, gl.CLAMP_TO_EDGE);
     const deepTarget = createTarget(gl, TWO_W, TWO_H, gl.REPEAT, gl.CLAMP_TO_EDGE);
-    const wcTarget = createTarget(gl, WC_W, WC_H, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
+    let wcTarget = createTarget(gl, WC_W, WC_H, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
+    let wcPrevTarget = createTarget(gl, WC_W, WC_H, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
     const bgTarget = createTarget(gl, Math.max(1, window.innerWidth), Math.max(1, window.innerHeight), gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
     const blurHTarget = createTarget(gl, Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)), gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
     const blurVTarget = createTarget(gl, Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)), gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
@@ -834,9 +859,12 @@ export class StageLiquidGlassEngine {
       uTexPale: uLoc(gl, bgProg, 'uTexPale'),
       uTexDeep: uLoc(gl, bgProg, 'uTexDeep'),
       uTexWc: uLoc(gl, bgProg, 'uTexWc'),
+      uTexWcPrev: uLoc(gl, bgProg, 'uTexWcPrev'),
       uPaleReady: uLoc(gl, bgProg, 'uPaleReady'),
       uDeepReady: uLoc(gl, bgProg, 'uDeepReady'),
       uWcReady: uLoc(gl, bgProg, 'uWcReady'),
+      uWcPrevReady: uLoc(gl, bgProg, 'uWcPrevReady'),
+      uTransition: uLoc(gl, bgProg, 'uTransition'),
       uW0: uLoc(gl, bgProg, 'uW0'),
       uW1: uLoc(gl, bgProg, 'uW1'),
       uW2: uLoc(gl, bgProg, 'uW2'),
@@ -857,6 +885,7 @@ export class StageLiquidGlassEngine {
     gl.uniform1i(bgU.uTexPale, 0);
     gl.uniform1i(bgU.uTexDeep, 1);
     gl.uniform1i(bgU.uTexWc, 2);
+    gl.uniform1i(bgU.uTexWcPrev, 3);
     gl.uniform4fv(bgU.uSun, TWO_SKY_FIRM.sun);
     gl.uniform1i(bgU.uAuroraSteps, tier === 'high' ? 12 : 8);
 
@@ -938,6 +967,7 @@ export class StageLiquidGlassEngine {
     let paleFade = 0;
     let deepFade = 0;
     let wcFade = 0;
+    let wcPrevFade = 0;
     let smoothDark = this.sky === 'pale' ? 0 : 1;
 
     const getWcMode = (sky: StageSkyId) => (sky === 'nebula' ? 2 : sky === 'dawn' ? 5 : 3);
@@ -983,6 +1013,13 @@ export class StageLiquidGlassEngine {
       const wcMode = getWcMode(this.sky);
       const wantedKey = String(wcMode);
       if (wcActiveKey !== wantedKey) {
+        if (wcDone && wcFade > 0.05) {
+          // Ping-pong preserve previous baked watercolour so sky switching never flashes black
+          const prev = wcTarget;
+          wcTarget = wcPrevTarget;
+          wcPrevTarget = prev;
+          wcPrevFade = wcFade;
+        }
         wcActiveKey = wantedKey;
         wcRow = 0;
         wcDone = false;
@@ -1088,8 +1125,13 @@ export class StageLiquidGlassEngine {
 
       if (paleDone) paleFade = Math.min(1, paleFade + dt * 2.8);
       if (deepDone) deepFade = Math.min(1, deepFade + dt * 2.8);
-      if (wcDone) wcFade = Math.min(1, wcFade + dt * 2.5);
+      if (wcDone) {
+        wcFade = Math.min(1, wcFade + dt * 2.4);
+        if (wcFade >= 0.999) wcPrevFade = 0;
+      }
       smoothDark = lerp(smoothDark, this.sky === 'pale' ? 0 : 1, skyLerp);
+      this.transitionPulse = Math.max(0, this.transitionPulse - dt * 1.75);
+      const transBell = Math.sin(this.transitionPulse * Math.PI);
 
       const tPigA = hexToRgbNormalized(this.atmosphere.primaryPigment);
       const tPigB = hexToRgbNormalized(this.atmosphere.secondaryPigment);
@@ -1126,9 +1168,12 @@ export class StageLiquidGlassEngine {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, paleTarget.tex);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, deepTarget.tex);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, wcTarget.tex);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, wcPrevTarget.tex);
       gl.uniform1f(bgU.uPaleReady, paleFade);
       gl.uniform1f(bgU.uDeepReady, deepFade);
       gl.uniform1f(bgU.uWcReady, wcFade);
+      gl.uniform1f(bgU.uWcPrevReady, wcPrevFade);
+      gl.uniform1f(bgU.uTransition, transBell);
       gl.uniform1f(bgU.uW0, w0);
       gl.uniform1f(bgU.uW1, w1);
       gl.uniform1f(bgU.uW2, w2);
@@ -1226,7 +1271,7 @@ export class StageLiquidGlassEngine {
       if (gl) {
         try {
           [twoBakeProg, wcBakeProg, bgProg, blurProg, glassProg].forEach(p => gl!.deleteProgram(p));
-          [paleTarget, deepTarget, wcTarget, bgTarget, blurHTarget, blurVTarget].forEach(t => {
+          [paleTarget, deepTarget, wcTarget, wcPrevTarget, bgTarget, blurHTarget, blurVTarget].forEach(t => {
             gl!.deleteFramebuffer(t.fbo);
             gl!.deleteTexture(t.tex);
           });

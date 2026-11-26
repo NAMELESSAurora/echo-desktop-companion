@@ -1,3 +1,5 @@
+export type LiveLanguage = 'zh' | 'ja' | 'en';
+
 export interface BackendConfig {
   mode: 'mock' | 'live';
   models: { dialogue: string; vision: string; memory: string; tts: string; realtime?: string };
@@ -16,6 +18,8 @@ export interface BackendConfig {
     input_audio: { format: string; sample_rate: number; channels: number };
     output_audio: { format: string; sample_rate: number; channels: number };
     voice: string | null;
+    language?: LiveLanguage;
+    supported_languages?: LiveLanguage[];
     persona_name: string;
     memory_scope: 'session' | 'user';
     delegation: 'none' | 'client' | 'server';
@@ -38,6 +42,7 @@ export interface MossLiveReady {
   memory_scope: string;
   delegation: string;
   voice: string | null;
+  language?: LiveLanguage;
   input_audio: { format: string; sample_rate: number; channels: number };
   output_audio: { format: string; sample_rate: number; channels: number };
   idle_timeout_s: number;

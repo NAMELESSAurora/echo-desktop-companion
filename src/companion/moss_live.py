@@ -44,8 +44,27 @@ ALLOWED_CLIENT_ACTIONS = {
     "playback.stopped",
     "media.output.configure",
     "change_voice",
+    "change_language",
+    "interrupt",
     "client_context.update",
     "ping",
+}
+
+SUPPORTED_LIVE_LANGUAGES = ("zh", "ja", "en")
+
+LIVE_LANGUAGE_DIRECTIVES = {
+    "zh": (
+        "【语音语言指令】接下来的所有实时语音回复请全程使用自然口语化的中文，"
+        "保持轻松俏皮、带一点深夜陪伴感的对话语气。"
+    ),
+    "ja": (
+        "【音声言語指示】これからのリアルタイム音声返答はすべて自然な口語の日本語で行い、"
+        "七草ナズナらしい軽やかで少し茶目っ気のある夜更かしの相棒トーンを保ってください。"
+    ),
+    "en": (
+        "[Speech Language] Please reply naturally in conversational English for all upcoming "
+        "responses, keeping a playful, breezy late-night companion tone."
+    ),
 }
 
 MAX_BINARY_AUDIO_BYTES = 65_536
@@ -104,7 +123,7 @@ def build_moss_realtime_url(settings: Settings) -> str:
 
 def build_session_instructions(facts: list[dict], extra: str = "") -> str:
     parts = [
-        "你是用户的桌面伴生伙伴。请用自然、简洁、有温度的中文口语交流，不要朗读符号或标记。",
+        "你是用户的桌面伴生伙伴。请用自然、简洁、有温度的口语交流，不要朗读符号或标记。",
     ]
     if facts:
         parts.append(
@@ -150,6 +169,9 @@ class MossRealtimeUpstream:
     async def send_json(self, payload: dict) -> None:
         if self._ws is None:
             raise MossLiveError("moss_not_connected")
+        action = payload.get("action")
+        if action in ("change_language", "interrupt"):
+            return
         await self._ws.send(json.dumps(payload, ensure_ascii=False))
 
     async def send_bytes(self, data: bytes) -> None:
@@ -197,6 +219,9 @@ class QwenRealtimeUpstream:
         self.closed = False
         self.session_id = ""
         self.voice = settings.qwen_realtime_voice or "longanqian_v3.1"
+        raw_lang = (settings.qwen_realtime_language or "zh").strip().lower()
+        self.language = raw_lang if raw_lang in SUPPORTED_LIVE_LANGUAGES else "zh"
+        self.base_instructions = ""
         self.instructions = ""
         self.mic_enabled = False
         self._session_created = asyncio.Event()
@@ -252,17 +277,23 @@ class QwenRealtimeUpstream:
             return
         await self._ws.send(json.dumps(payload, ensure_ascii=False))
 
+    def _compose_instructions(self) -> str:
+        directive = LIVE_LANGUAGE_DIRECTIVES.get(self.language, "")
+        parts = [p for p in (self.base_instructions, directive) if p]
+        return "\n\n".join(parts)[:12000]
+
     async def _push_session_update(self) -> None:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
         self._pending_session_updated = fut
+        self.instructions = self._compose_instructions()
         session_cfg: dict = {
             "modalities": ["audio", "text"],
             "voice": self.voice,
             "enable_speech_emotion": True,
             "input_audio_format": "pcm",
             "output_audio_format": "pcm",
-            "output_audio": {"language": self.settings.qwen_realtime_language},
+            "output_audio": {"language": self.language},
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": 0.5,
@@ -310,9 +341,58 @@ class QwenRealtimeUpstream:
                 )
                 return
             self.voice = new_voice
-            if self.instructions:
+            if self.base_instructions or self.instructions:
                 await self._push_session_update()
             await self._emit("voice_changed", {"name": self.voice})
+            return
+
+        if action == "change_language":
+            new_lang = str(payload.get("language") or "").strip().lower()
+            if new_lang not in SUPPORTED_LIVE_LANGUAGES:
+                await self._emit(
+                    "error",
+                    {
+                        "type": "error",
+                        "error": {
+                            "code": "invalid_public_request",
+                            "message": "language must be one of zh, ja, en",
+                        },
+                    },
+                )
+                return
+            self.language = new_lang
+            if self.base_instructions or self.instructions:
+                try:
+                    await self._push_session_update()
+                except Exception as exc:
+                    await self._emit(
+                        "error",
+                        {
+                            "type": "error",
+                            "error": {
+                                "code": "qwen_language_switch_failed",
+                                "message": str(exc)[:120],
+                            },
+                        },
+                    )
+                    return
+            await self._emit("language_changed", {"language": self.language})
+            return
+
+        if action == "interrupt":
+            if self._active_run_id:
+                run_id = self._active_run_id
+                turn_id = self._active_turn_id or "turn-0"
+                await self._send_raw({"type": "response.cancel"})
+                await self._emit(
+                    "response.audio.stop",
+                    {"run_id": run_id, "turn_id": turn_id, "reason": "user_interrupt"},
+                )
+                await self._emit(
+                    "response.interrupted",
+                    {"run_id": run_id, "turn_id": turn_id, "reason": "user_interrupt"},
+                )
+                self._reset_active_turn()
             return
 
         if action == "session.update":
@@ -323,7 +403,7 @@ class QwenRealtimeUpstream:
                 parts.append(str(persona["prompt"]).strip())
             if sess.get("instructions"):
                 parts.append(str(sess["instructions"]).strip())
-            self.instructions = "\n\n".join(parts)[:12000]
+            self.base_instructions = "\n\n".join(parts)[:11000]
             try:
                 await self._push_session_update()
             except Exception as exc:
@@ -609,6 +689,8 @@ class MockMossUpstream:
         self.closed = False
         self.session_id = "mock-live-" + uuid.uuid4().hex[:10]
         self.voice_name = settings.moss_voice or MOCK_VOICES[0]["id"]
+        raw_lang = (settings.qwen_realtime_language or "zh").strip().lower()
+        self.language = raw_lang if raw_lang in SUPPORTED_LIVE_LANGUAGES else "zh"
         self.output_sample_rate = settings.moss_output_sample_rate
         self.playback_mode = "client"
         self.tagged_binary = False
@@ -689,6 +771,28 @@ class MockMossUpstream:
                 return
             self.voice_name = voice
             await self._emit("voice_changed", {"name": voice})
+            return
+
+        if action == "change_language":
+            lang = str(payload.get("language") or "").strip().lower()
+            if lang not in SUPPORTED_LIVE_LANGUAGES:
+                await self._emit(
+                    "error",
+                    {
+                        "type": "error",
+                        "error": {
+                            "code": "invalid_public_request",
+                            "message": "language must be one of zh, ja, en",
+                        },
+                    },
+                )
+                return
+            self.language = lang
+            await self._emit("language_changed", {"language": lang})
+            return
+
+        if action == "interrupt":
+            await self._interrupt_if_active("user_interrupt")
             return
 
         if action == "session.update":
@@ -925,10 +1029,21 @@ class MockMossUpstream:
         self.active_run_id = run_id
         self.active_turn_id = turn_id
         self.awaiting_playback_done = False
-        reply = (
-            f"MOSS-Live 离线演练通道已联通。我听见你说：「{user_text[:60]}」。"
-            "现在发出的是一组诊断音，用来校验全双工字幕、声波光环与打断回执。"
-        )
+        if self.language == "ja":
+            reply = (
+                f"オフライン音声テスト接続中。今「{user_text[:50]}」って聞こえたよ。"
+                "七草ナズナの声波リングと割り込み応答をチェック中だよ。"
+            )
+        elif self.language == "en":
+            reply = (
+                f"Offline live voice check ready. I heard: '{user_text[:50]}'. "
+                "Testing full-duplex subtitles, waveform halo, and barge-in."
+            )
+        else:
+            reply = (
+                f"实时语音离线演练通道已联通。我听见你说：「{user_text[:60]}」。"
+                "现在发出的是一组诊断音，用来校验全双工字幕、声波光环与打断回执。"
+            )
         self.active_reply_text = reply
 
         async def stream_reply() -> None:
@@ -1188,6 +1303,7 @@ class MossLiveManager:
         sid: str,
         *,
         voice_override: str | None = None,
+        language_override: str | None = None,
         time_zone: str | None = None,
     ) -> None:
         async def reject(code: int, err_code: str, message: str) -> None:
@@ -1241,7 +1357,11 @@ class MossLiveManager:
                 call.upstream = upstream
                 await upstream.connect()
                 ready_info = await self._bootstrap(
-                    upstream, session, voice_override=voice_override, time_zone=time_zone
+                    upstream,
+                    session,
+                    voice_override=voice_override,
+                    language_override=language_override,
+                    time_zone=time_zone,
                 )
                 await websocket.send_json({"action": "live.ready", "data": ready_info})
                 await self._bridge(websocket, upstream, sid)
@@ -1291,6 +1411,7 @@ class MossLiveManager:
         session: dict,
         *,
         voice_override: str | None,
+        language_override: str | None = None,
         time_zone: str | None,
     ) -> dict:
         attach: dict = {"action": "attach_session", "session_id": None}
@@ -1312,6 +1433,19 @@ class MossLiveManager:
             await upstream.send_json({"action": "change_voice", "voice_name": chosen_voice})
             voice_ack = await self._wait_for_action(upstream, "voice_changed")
             active_voice = voice_ack.get("name") or chosen_voice
+
+        default_lang = (self.settings.qwen_realtime_language or "zh").strip().lower()
+        if default_lang not in SUPPORTED_LIVE_LANGUAGES:
+            default_lang = "zh"
+        chosen_lang = (language_override or "").strip().lower()
+        active_lang = default_lang
+        if chosen_lang in SUPPORTED_LIVE_LANGUAGES:
+            await upstream.send_json({"action": "change_language", "language": chosen_lang})
+            if not isinstance(upstream, MossRealtimeUpstream):
+                lang_ack = await self._wait_for_action(upstream, "language_changed")
+                active_lang = str(lang_ack.get("language") or chosen_lang)
+            else:
+                active_lang = chosen_lang
 
         facts, _ = await self.store.context(session["id"])
         instructions = build_session_instructions(facts)
@@ -1368,6 +1502,7 @@ class MossLiveManager:
             "memory_scope": attached.get("memory_scope", self.settings.moss_memory_scope),
             "delegation": attached.get("delegation", self.settings.moss_delegation),
             "voice": active_voice,
+            "language": active_lang,
             "input_audio": {"format": "pcm_s16le", "sample_rate": 16000, "channels": 1},
             "output_audio": {
                 "format": "pcm_s16le",

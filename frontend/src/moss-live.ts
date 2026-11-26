@@ -1,6 +1,6 @@
 import { ApiError } from './api';
 import type { AudioChunkMeta, PcmPlayer } from './audio';
-import type { MossLiveReady } from './types';
+import type { LiveLanguage, MossLiveReady } from './types';
 
 export type LiveConnectionState = 'idle' | 'connecting' | 'connected' | 'closing';
 
@@ -33,6 +33,7 @@ export interface MossLiveCallbacks {
   onAssistantInterrupt: (runId: string, turnId: string, reason: string, playedAudioMs: number) => void;
   onAssistantEnd: (runId: string, turnId: string, status: string) => void;
   onVoiceChanged?: (voiceName: string) => void;
+  onLanguageChanged?: (language: LiveLanguage) => void;
   onMicState?: (info: { available: boolean; muted: boolean; level: number }) => void;
   onEvent?: (action: string, data: Record<string, unknown>) => void;
   onNotice?: (codeOrError: unknown) => void;
@@ -125,7 +126,7 @@ export class MossLiveClient {
   get hasMic(): boolean { return this.micAvailable; }
   get ready(): MossLiveReady | null { return this.readyInfo; }
 
-  async connect(sessionId: string, voice?: string, ticket?: string): Promise<void> {
+  async connect(sessionId: string, voice?: string, ticket?: string, language?: LiveLanguage): Promise<void> {
     if (this.isActive) return;
     this.setState('connecting', null);
     this.lastErrorCode = '';
@@ -142,6 +143,7 @@ export class MossLiveClient {
       if (tz) params.set('tz', tz);
     } catch { /* ignore */ }
     if (voice) params.set('voice', voice);
+    if (language) params.set('lang', language);
     if (ticket) params.set('ticket', ticket);
 
     const loc = typeof location !== 'undefined' ? location : { protocol: 'http:', host: '127.0.0.1:8765' };
@@ -214,6 +216,16 @@ export class MossLiveClient {
     this.sendJson({ action: 'change_voice', voice_name: voiceId });
   }
 
+  setLanguage(language: LiveLanguage): void {
+    if (!this.isConnected) return;
+    this.sendJson({ action: 'change_language', language });
+  }
+
+  interrupt(): void {
+    if (!this.isConnected) return;
+    this.sendJson({ action: 'interrupt' });
+  }
+
   sendMockUtterance(text: string): void {
     if (!this.isConnected) return;
     this.sendJson({ action: 'mock.utterance', text });
@@ -284,6 +296,15 @@ export class MossLiveClient {
     if (action === 'voice_changed') {
       const name = String(data.name ?? '');
       if (name) this.callbacks.onVoiceChanged?.(name);
+      return;
+    }
+
+    if (action === 'language_changed') {
+      const lang = String(data.language ?? '') as LiveLanguage;
+      if (lang === 'zh' || lang === 'ja' || lang === 'en') {
+        if (this.readyInfo) this.readyInfo = { ...this.readyInfo, language: lang };
+        this.callbacks.onLanguageChanged?.(lang);
+      }
       return;
     }
 

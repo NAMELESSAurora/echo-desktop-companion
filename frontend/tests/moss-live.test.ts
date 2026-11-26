@@ -124,9 +124,10 @@ describe('MossLiveClient protocol state machine', () => {
       },
     );
 
-    await client.connect('sess-123', 'voice-abc', 'tk-once');
+    await client.connect('sess-123', 'voice-abc', 'tk-once', 'ja');
     expect(socket.url).toContain('/v1/sessions/sess-123/live');
     expect(socket.url).toContain('voice=voice-abc');
+    expect(socket.url).toContain('lang=ja');
     expect(socket.url).toContain('ticket=tk-once');
 
     socket.emitJson('live.ready', {
@@ -137,12 +138,21 @@ describe('MossLiveClient protocol state machine', () => {
       memory_scope: 'session',
       delegation: 'none',
       voice: 'voice-abc',
+      language: 'ja',
       input_audio: { format: 'pcm_s16le', sample_rate: 16000, channels: 1 },
       output_audio: { format: 'pcm_s16le', sample_rate: 24000, channels: 1 },
       idle_timeout_s: 180,
       mock_audio: true,
     });
     expect(client.isConnected).toBe(true);
+
+    // Hot-switch language & manual interrupt protocol actions
+    client.setLanguage('en');
+    expect(socket.sentJson()).toContainEqual({ action: 'change_language', language: 'en' });
+    socket.emitJson('language_changed', { language: 'en' });
+    expect(client.ready?.language).toBe('en');
+    client.interrupt();
+    expect(socket.sentJson()).toContainEqual({ action: 'interrupt' });
 
     // User partial -> final re-keys seamlessly
     socket.emitJson('input.transcript.updated', { text: '你好' });

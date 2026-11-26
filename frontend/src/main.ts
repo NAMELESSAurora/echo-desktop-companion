@@ -1,6 +1,14 @@
 import './style.css';
 import './avatar.css';
-import { ApiError, BackendApi, explainError, getLocalBearerToken, setLocalBearerToken } from './api';
+import nazunaHeadUrl from './assets/nazuna-head.webp';
+import {
+  ApiError,
+  BackendApi,
+  clearLocalBearerToken,
+  explainError,
+  getLocalBearerToken,
+  setLocalBearerToken,
+} from './api';
 import { PcmPlayer } from './audio';
 import type { AudioStatus } from './audio';
 import { AvatarStage } from './avatar';
@@ -11,10 +19,19 @@ import { glassRegistry, type GlassPresetId } from './liquid-glass';
 import { MossLiveClient, type LiveConnectionState } from './moss-live';
 import { PerformanceController } from './performance-tier';
 import { ScreenSource } from './screen';
+import { SfxEngine } from './sfx';
 import { StageLiquidGlassEngine, type PointerState } from './stage-canvas';
 import { MOOD_ATMOSPHERES, STAGE_SKIES, type StageSkyId } from './stage-skies';
 import { TurnCoordinator } from './turns';
-import type { BackendConfig, MemoryFact, MemoryProposal, MossVoice, PipelineEvent, Session } from './types';
+import type {
+  BackendConfig,
+  LiveLanguage,
+  MemoryFact,
+  MemoryProposal,
+  MossVoice,
+  PipelineEvent,
+  Session,
+} from './types';
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = el<HTMLTextAreaElement>('message-input');
@@ -25,19 +42,36 @@ const dockNewButton = el<HTMLButtonElement>('dock-new-btn');
 const dockLiveButton = el<HTMLButtonElement>('dock-live-btn');
 const liveToggleButton = el<HTMLButtonElement>('live-toggle-btn');
 const liveCallBar = el('live-call-bar');
+const liveCallAvatar = el('live-call-avatar');
 const liveCallStateEl = el('live-call-state');
 const liveCallTimerEl = el('live-call-timer');
 const liveMicMeter = el<HTMLMeterElement>('live-mic-meter');
+const liveLangSelect = el<HTMLSelectElement>('live-lang-select');
 const liveVoiceSelect = el<HTMLSelectElement>('live-voice-select');
 const liveMuteButton = el<HTMLButtonElement>('live-mute-btn');
+const liveBargeButton = el<HTMLButtonElement>('live-barge-btn');
 const liveMockSayButton = el<HTMLButtonElement>('live-mock-say');
 const liveMockBargeButton = el<HTMLButtonElement>('live-mock-barge');
 const liveHangupButton = el<HTMLButtonElement>('live-hangup-btn');
+const liveLockButton = el<HTMLButtonElement>('live-lock-btn');
+const exportChatButton = el<HTMLButtonElement>('export-chat');
 const soundCheckbox = el<HTMLInputElement>('sound-enabled');
+const sfxCheckbox = el<HTMLInputElement>('sfx-enabled');
 const attachCheckbox = el<HTMLInputElement>('attach-screen');
 const replayButton = el<HTMLButtonElement>('replay');
 const organizeButton = el<HTMLButtonElement>('organize-memory');
 const api = new BackendApi();
+const sfx = new SfxEngine();
+
+// Bind bespoke Nazuna portrait medallion across HUD, stage, call bar, and tab favicon
+el<HTMLImageElement>('hud-avatar-mini').src = nazunaHeadUrl;
+el<HTMLImageElement>('stage-avatar-img').src = nazunaHeadUrl;
+el<HTMLImageElement>('live-call-avatar-img').src = nazunaHeadUrl;
+const faviconEl = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+if (faviconEl) {
+  faviconEl.type = 'image/webp';
+  faviconEl.href = nazunaHeadUrl;
+}
 
 let session: Session | null = null;
 let backendConfig: BackendConfig | null = null;
@@ -78,6 +112,50 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 // ==========================================================================
 const SKY_STORAGE = 'companion:stage-sky';
 const PRESET_STORAGE = 'companion:glass-preset';
+const LANG_STORAGE = 'companion:live-lang';
+const VOLUME_STORAGE = 'companion:volume';
+const PERSONA_ID_STORAGE = 'companion:persona-id';
+const PERSONA_PROMPT_STORAGE = 'companion:persona-prompt';
+
+const LIVE_LANG_LABELS: Record<LiveLanguage, string> = {
+  zh: '中文',
+  ja: '日本語',
+  en: 'English',
+};
+const VALID_LANGS: readonly LiveLanguage[] = ['zh', 'ja', 'en'];
+
+interface PersonaPreset {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+const PERSONA_PRESETS: readonly PersonaPreset[] = [
+  {
+    id: 'nazuna',
+    label: '夜行七草荠',
+    prompt:
+      '你是七草荠（Nanakusa Nazuna），性格自由散漫、俏皮直率、带一点深夜漫步的慵懒与小得意。说话像熟识的夜行伙伴一样自然简短，偶尔轻轻吐槽，但真心关心对方。不要机械复述问题，也不要用客服腔或长篇大论。',
+  },
+  {
+    id: 'ja_tutor',
+    label: '日语陪练',
+    prompt:
+      '你是七草荠（Nanakusa Nazuna），正在和朋友用轻松自然的东京日常日语聊天。回复简短有来有往，如果对方日语有更地道的说法，可以用玩笑口吻顺手点一句，保持自在不拘束的夜聊氛围。',
+  },
+  {
+    id: 'focus',
+    label: '静音伴读',
+    prompt:
+      '你是七草荠，正安静地陪对方深夜工作或读书。语气比平时更柔和克制、短句清晰、少打扰，在对方卡壳或疲惫时给出轻巧的鼓励与提醒。',
+  },
+  {
+    id: 'coder',
+    label: '代码搭档',
+    prompt:
+      '你是七草荠，同时是思维敏锐的深夜工程搭档。回答直击重点、逻辑利落，帮对方拆解 Bug 和设计思路时偶尔带点俏皮吐槽，不堆砌废话。',
+  },
+];
 
 function readStored<T extends string>(key: string, valid: readonly T[], fallback: T): T {
   try {
@@ -91,6 +169,23 @@ const VALID_SKIES = STAGE_SKIES.map(s => s.id) as StageSkyId[];
 const VALID_PRESETS: readonly GlassPresetId[] = ['apple', 'thick', 'prism', 'frosted'];
 let currentSky: StageSkyId = readStored(SKY_STORAGE, VALID_SKIES, 'pale');
 let currentPreset: GlassPresetId = readStored(PRESET_STORAGE, VALID_PRESETS, 'apple');
+let currentLiveLang: LiveLanguage = readStored(LANG_STORAGE, VALID_LANGS, 'zh');
+let currentPersonaId = (() => {
+  try { return localStorage.getItem(PERSONA_ID_STORAGE) || 'nazuna'; } catch { return 'nazuna'; }
+})();
+let currentPersonaPrompt = (() => {
+  try {
+    return localStorage.getItem(PERSONA_PROMPT_STORAGE) || PERSONA_PRESETS[0].prompt;
+  } catch {
+    return PERSONA_PRESETS[0].prompt;
+  }
+})();
+const storedVolume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_STORAGE));
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 45;
+  } catch { return 45; }
+})();
 
 const pointer: PointerState = { x: 0, y: 0, nx: 0.56, ny: 0.45, speed: 0, active: false };
 let lastPtrX = window.innerWidth * 0.55;
@@ -183,11 +278,12 @@ const floatingDock = mountFloatingDock({
   initialPreset: currentPreset,
   onSkyChange: sky => applySky(sky, true),
   onPresetChange: preset => applyPreset(preset),
-  onFlash: () => { drafting.flash(); stageEngine.triggerFoil(1.0); },
+  onFlash: () => { drafting.flash(); stageEngine.triggerFoil(1.0); sfx.play('skyShift'); },
   onFoilImpulse: s => stageEngine.triggerFoil(s),
 });
 
 function applySky(sky: StageSkyId, flash = false) {
+  const changed = currentSky !== sky;
   currentSky = sky;
   const dark = sky !== 'pale';
   document.documentElement.dataset.skyTheme = dark ? 'dark' : 'light';
@@ -196,16 +292,78 @@ function applySky(sky: StageSkyId, flash = false) {
   stageEngine.setSky(sky);
   skySegmented.setValue(sky === 'dawn' ? 'eclipse' : sky);
   floatingDock.syncSky(sky);
-  if (flash) drafting.flash();
+  if (flash) {
+    drafting.flash();
+    if (changed) sfx.play('skyShift');
+  }
   try { localStorage.setItem(SKY_STORAGE, sky); } catch { /* ignore */ }
   if (!animation) drawWave();
 }
 
 function applyPreset(preset: GlassPresetId) {
+  const changed = currentPreset !== preset;
   currentPreset = preset;
   stageEngine.setPreset(preset);
   floatingDock.syncPreset(preset);
+  if (changed) sfx.play('click');
   try { localStorage.setItem(PRESET_STORAGE, preset); } catch { /* ignore */ }
+}
+
+function renderPersonaControls() {
+  const grid = el('dock-persona-grid');
+  const promptInput = el<HTMLTextAreaElement>('persona-prompt-input');
+  grid.replaceChildren();
+  for (const preset of PERSONA_PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dock-chip';
+    btn.classList.toggle('is-active', preset.id === currentPersonaId);
+    btn.textContent = preset.label;
+    btn.addEventListener('click', () => {
+      currentPersonaId = preset.id;
+      currentPersonaPrompt = preset.prompt;
+      promptInput.value = preset.prompt;
+      try {
+        localStorage.setItem(PERSONA_ID_STORAGE, currentPersonaId);
+        localStorage.setItem(PERSONA_PROMPT_STORAGE, currentPersonaPrompt);
+      } catch { /* ignore */ }
+      sfx.play('click');
+      renderPersonaControls();
+    });
+    grid.append(btn);
+  }
+  if (promptInput.value !== currentPersonaPrompt) {
+    promptInput.value = currentPersonaPrompt;
+  }
+}
+
+function syncLanguageControls(lang: LiveLanguage) {
+  currentLiveLang = lang;
+  liveLangSelect.value = lang;
+  document.querySelectorAll<HTMLButtonElement>('[data-live-lang]').forEach(btn => {
+    const active = btn.dataset.liveLang === lang;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function switchLiveLanguage(lang: LiveLanguage, fromUser = true) {
+  const changed = currentLiveLang !== lang;
+  syncLanguageControls(lang);
+  try { localStorage.setItem(LANG_STORAGE, lang); } catch { /* ignore */ }
+  if (!fromUser) return;
+  if (changed) {
+    sfx.play('langSwitch');
+    stageEngine.triggerFoil(0.65);
+  } else {
+    sfx.play('click');
+  }
+  if (liveClient.isConnected) {
+    liveCallStateEl.textContent = `正在热切至 ${LIVE_LANG_LABELS[lang]}…`;
+    liveClient.setLanguage(lang);
+  } else if (ready) {
+    el('turn-status').textContent = `实时语音语言已切换为 ${LIVE_LANG_LABELS[lang]}`;
+  }
 }
 
 // Register structural Liquid Glass cards and HUD capsules into GPU SDF compositor
@@ -244,7 +402,7 @@ const perf = new PerformanceController(snap => {
   stageEngine.setTier(snap.tier);
   drafting.setTier(snap.tier);
 });
-el('tier-button').addEventListener('click', () => { perf.cycleOverride(); stageEngine.triggerFoil(0.6); });
+el('tier-button').addEventListener('click', () => { perf.cycleOverride(); stageEngine.triggerFoil(0.6); sfx.play('click'); });
 
 function updateClock() {
   const now = new Date();
@@ -267,8 +425,8 @@ function setStageFocus(next: boolean) {
   toggleBtn.textContent = next ? '收拢幕布' : '展开幕布';
   dockFocusBtn.setAttribute('aria-pressed', String(next));
 }
-el('toggle-stage-focus').addEventListener('click', () => setStageFocus(!stageFocused));
-el('dock-focus-btn').addEventListener('click', () => setStageFocus(!stageFocused));
+el('toggle-stage-focus').addEventListener('click', () => { sfx.play('click'); setStageFocus(!stageFocused); });
+el('dock-focus-btn').addEventListener('click', () => { sfx.play('click'); setStageFocus(!stageFocused); });
 
 function switchInspectorTab(tab: 'telemetry' | 'memory') {
   const isMem = tab === 'memory';
@@ -279,12 +437,14 @@ function switchInspectorTab(tab: 'telemetry' | 'memory') {
   el('panel-telemetry').hidden = isMem;
   el('panel-memory').hidden = !isMem;
 }
-el('tab-btn-telemetry').addEventListener('click', () => switchInspectorTab('telemetry'));
+el('tab-btn-telemetry').addEventListener('click', () => { sfx.play('click'); switchInspectorTab('telemetry'); });
 el('tab-btn-memory').addEventListener('click', () => {
+  sfx.play('click');
   switchInspectorTab('memory');
   if (session && ready) void refreshFacts();
 });
 el('dock-memory-btn').addEventListener('click', () => {
+  sfx.play('click');
   switchInspectorTab('memory');
   el('telemetry-card').scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'nearest' });
   if (session && ready) void refreshFacts();
@@ -296,6 +456,7 @@ el('dock-memory-btn').addEventListener('click', () => {
 function showError(error: unknown) {
   el('notice-text').textContent = explainError(error);
   el('notice').hidden = false;
+  sfx.play('error');
 }
 
 function actions() {
@@ -308,14 +469,19 @@ function actions() {
   dockNewButton.disabled = !ready;
   liveToggleButton.disabled = !ready;
   dockLiveButton.disabled = !ready;
+  liveLockButton.hidden = !(backendConfig?.mode === 'live' && Boolean(getLocalBearerToken()));
+  exportChatButton.disabled = el('messages').querySelectorAll('.message').length === 0;
   liveToggleButton.setAttribute('aria-pressed', String(liveActive));
   dockLiveButton.setAttribute('aria-pressed', String(liveActive));
   liveToggleButton.querySelector('span')!.textContent = liveConnected ? '通话中' : liveActive ? '连接中…' : '语音通话';
   dockLiveButton.querySelector('span')!.textContent = liveActive ? '挂断通话' : '语音通话';
   liveCallBar.hidden = !liveActive;
   liveCallBar.classList.toggle('is-connected', liveConnected);
+  liveCallAvatar.classList.toggle('is-speaking', liveSpeaking);
   liveVoiceSelect.disabled = !liveConnected;
+  liveLangSelect.disabled = !liveConnected;
   liveMuteButton.disabled = !liveConnected || !liveClient.hasMic;
+  liveBargeButton.disabled = !liveConnected || !liveSpeaking;
   const isMockLive = liveConnected && liveClient.ready?.mode === 'mock';
   liveMockSayButton.hidden = !isMockLive;
   liveMockBargeButton.hidden = !isMockLive;
@@ -357,10 +523,11 @@ function drawWave() {
 const player = new PcmPlayer(status => {
   audioStatus = status;
   avatar?.playback(status.playing);
+  const liveAudioLabel = backendConfig?.mode === 'live' ? '七草荠声轨共振中' : '声波共振中（诊断音）';
   el('audio-status').textContent = !soundCheckbox.checked
     ? '声景已静默'
     : status.playing
-      ? '声波共振中（诊断音）'
+      ? liveAudioLabel
       : status.playedChunks
         ? '余韵已落'
         : '静候声波';
@@ -399,23 +566,50 @@ const screen = new ScreenSource(
 function message(role: 'user' | 'assistant', text: string, withScreen = false, channel: 'http' | 'live' = 'http') {
   const item = document.createElement('article');
   item.className = `message message-${role}`;
+  item.dataset.role = role;
+  item.dataset.channel = channel;
   const header = document.createElement('div'); header.className = 'message-header';
-  const badge = document.createElement('span'); badge.className = 'message-avatar'; badge.textContent = role === 'user' ? '你' : '荠';
+  const badge = document.createElement('span');
+  badge.className = role === 'assistant' ? 'message-avatar is-portrait' : 'message-avatar';
+  if (role === 'assistant') {
+    const img = document.createElement('img');
+    img.src = nazunaHeadUrl;
+    img.alt = '七草荠';
+    badge.append(img);
+  } else {
+    badge.textContent = '你';
+  }
   const name = document.createElement('span');
   const liveTag = backendConfig?.moss_live?.provider === 'qwen' ? '七草荠 · QWEN 3.1' : '七草荠 · MOSS-LIVE';
   const httpTag = backendConfig?.mode === 'live' ? '七草荠 · 实时' : '七草荠 · 离线演练';
   name.textContent = role === 'user'
     ? (channel === 'live' ? '来访者 · LIVE 语音' : '来访者 · YOU')
     : (channel === 'live' ? liveTag : httpTag);
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'message-copy-btn';
+  copyBtn.title = '复制本条文字';
+  copyBtn.setAttribute('aria-label', '复制本条文字');
+  copyBtn.innerHTML = '<svg class="icon"><use href="#i-copy" /></svg>';
   const time = document.createElement('time'); time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  header.append(badge, name, time);
+  header.append(badge, name, time, copyBtn);
   const content = document.createElement('div'); content.className = 'message-content'; content.textContent = text;
+  copyBtn.addEventListener('click', () => {
+    const raw = content.textContent?.trim();
+    if (!raw || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(raw).then(() => {
+      sfx.play('click');
+      copyBtn.classList.add('is-copied');
+      window.setTimeout(() => copyBtn.classList.remove('is-copied'), 1100);
+    }).catch(() => {});
+  });
   const footer = document.createElement('div'); footer.className = 'message-footer';
   item.append(header, content, footer);
   if (withScreen && role === 'user') {
     const label = document.createElement('div'); label.className = 'message-image-label'; label.textContent = '附带视窗一帧 · FRAME ATTACHED'; item.append(label);
   }
   el('messages').append(item);
+  exportChatButton.disabled = false;
   return { content, footer };
 }
 
@@ -474,6 +668,7 @@ function startLiveTimer() {
 
 const liveClient = new MossLiveClient(player, {
   onState(next, readyInfo) {
+    const prevState = liveState;
     liveState = next;
     if (next === 'connecting') {
       const provName = backendConfig?.moss_live?.provider === 'qwen' ? 'Qwen 3.1 实时语音' : 'MOSS-Live';
@@ -495,14 +690,20 @@ const liveClient = new MossLiveClient(player, {
       if (readyInfo?.voice && [...liveVoiceSelect.options].some(o => o.value === readyInfo.voice)) {
         liveVoiceSelect.value = readyInfo.voice;
       }
+      if (readyInfo?.language && VALID_LANGS.includes(readyInfo.language)) {
+        syncLanguageControls(readyInfo.language);
+      }
       startLiveTimer();
       stageEngine.triggerFoil(0.85);
+      sfx.play('callConnect');
     } else {
+      const wasActive = prevState === 'connected' || prevState === 'connecting';
       liveSpeaking = false;
       liveMicMeter.value = 0;
       stopLiveTimer();
       avatar?.playback(false);
       avatar?.resetConversation();
+      if (wasActive) sfx.play('callHangup');
       if (ready) {
         el('turn-status').textContent = '语音通话已挂断';
         el('flow-state').textContent = '待命';
@@ -565,7 +766,8 @@ const liveClient = new MossLiveClient(player, {
     avatar?.interrupt(runId || 'live-reply');
     drafting.flash();
     stageEngine.triggerFoil(0.95);
-    liveCallStateEl.textContent = `已自然打断 · 回报进度 ${playedAudioMs} ms`;
+    sfx.play('bargeIn');
+    liveCallStateEl.textContent = `已打断 · 回报进度 ${playedAudioMs} ms`;
     const view = liveViews.get(`live-assistant-${runId}`);
     if (view) view.footer.textContent = `已打断 · 已播 ${playedAudioMs} ms`;
     actions();
@@ -574,7 +776,7 @@ const liveClient = new MossLiveClient(player, {
     liveSpeaking = false;
     if (status === 'completed') {
       avatar?.complete(runId || 'live-reply');
-      liveCallStateEl.textContent = '通话在线 · 随时可开口';
+      liveCallStateEl.textContent = `通话在线（${LIVE_LANG_LABELS[currentLiveLang]}）· 随时可开口`;
     }
     actions();
   },
@@ -582,7 +784,13 @@ const liveClient = new MossLiveClient(player, {
     if ([...liveVoiceSelect.options].some(o => o.value === voiceName)) {
       liveVoiceSelect.value = voiceName;
     }
-    liveCallStateEl.textContent = '实时音色已切换';
+    sfx.play('langSwitch');
+    liveCallStateEl.textContent = '实时音色已热切';
+  },
+  onLanguageChanged(lang) {
+    syncLanguageControls(lang);
+    liveCallStateEl.textContent = `已热切至 ${LIVE_LANG_LABELS[lang]} · 下句生效`;
+    el('turn-status').textContent = `实时语音已热切为 ${LIVE_LANG_LABELS[lang]}`;
   },
   onMicState({ available, muted, level }) {
     liveMicMeter.value = level;
@@ -631,7 +839,12 @@ async function toggleLiveCall() {
       const res = await api.liveTicket(session.id);
       ticket = res.ticket;
     }
-    await liveClient.connect(session.id, liveVoiceSelect.value || undefined, ticket);
+    await liveClient.connect(
+      session.id,
+      liveVoiceSelect.value || undefined,
+      ticket,
+      currentLiveLang,
+    );
   } catch (error) {
     showError(error);
     actions();
@@ -693,9 +906,14 @@ coordinator = new TurnCoordinator(api, {
       view.footer.textContent = '声景暂不可用，文字回应继续。';
     } else if (event.type === 'turn.completed') {
       avatar?.complete(record.localId);
+      sfx.play('replyDone');
       el('turn-status').textContent = '本轮回应落定';
       el('flow-state').textContent = '已落定';
-      view.footer.textContent = data.audio_status === 'failed' ? '文字落定 · 声景未合成' : '离线演练完成';
+      view.footer.textContent = data.audio_status === 'failed'
+        ? '文字落定 · 声景未合成'
+        : backendConfig?.mode === 'live'
+          ? '声轨已落定'
+          : '离线演练完成';
       el('first-text').textContent = millis(data.first_text_ms);
       el('first-audio').textContent = millis(data.first_audio_ms);
       el('duration').textContent = millis(data.duration_ms);
@@ -715,6 +933,7 @@ coordinator = new TurnCoordinator(api, {
     avatar?.interrupt(record.localId);
     drafting.flash();
     stageEngine.triggerFoil(0.9);
+    sfx.play('bargeIn');
     const view = views.get(record.localId);
     if (view && !record.terminal) view.footer.textContent = '已打断 · 播放队列已清空';
     el('turn-status').textContent = record.terminal ? '声景已止' : '已刹那止声';
@@ -782,12 +1001,50 @@ function renderMemoryLists() {
       const span = document.createElement('span');
       span.className = 'memory-item-text';
       span.textContent = fact.text;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'memory-item-btn danger';
-      btn.textContent = '遗忘';
-      btn.addEventListener('click', () => void forgetFact(fact.id));
-      li.append(span, btn);
+      const act = document.createElement('div');
+      act.className = 'memory-item-actions';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'memory-item-btn';
+      editBtn.textContent = '编辑';
+      editBtn.addEventListener('click', () => {
+        sfx.play('click');
+        li.replaceChildren();
+        const field = document.createElement('input');
+        field.type = 'text';
+        field.className = 'memory-edit-input';
+        field.value = fact.text;
+        field.maxLength = 500;
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'memory-item-btn';
+        saveBtn.textContent = '保存';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'memory-item-btn danger';
+        cancelBtn.textContent = '取消';
+        const commit = () => {
+          const next = field.value.trim();
+          if (!next || next === fact.text) { renderMemoryLists(); return; }
+          void saveFactEdit(fact.id, next);
+        };
+        saveBtn.addEventListener('click', commit);
+        cancelBtn.addEventListener('click', () => renderMemoryLists());
+        field.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); renderMemoryLists(); }
+        });
+        li.append(field, saveBtn, cancelBtn);
+        field.focus();
+        field.select();
+      });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'memory-item-btn danger';
+      delBtn.textContent = '遗忘';
+      delBtn.addEventListener('click', () => void forgetFact(fact.id));
+      act.append(editBtn, delBtn);
+      li.append(span, act);
       factEl.append(li);
     }
   }
@@ -838,6 +1095,19 @@ async function acceptProposal(pid: string) {
     pendingProposals = pendingProposals.filter(p => p.id !== pid);
     el('memory-status').textContent = '已写入长期记忆';
     stageEngine.triggerFoil(0.85);
+    sfx.play('memorySave');
+    await refreshFacts();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function saveFactEdit(fid: string, text: string) {
+  try {
+    await api.editFact(fid, text);
+    pendingProposals = [];
+    el('memory-status').textContent = '已修订长期记忆';
+    sfx.play('memorySave');
     await refreshFacts();
   } catch (error) {
     showError(error);
@@ -850,6 +1120,7 @@ async function forgetFact(fid: string) {
     pendingProposals = [];
     el('memory-status').textContent = '已遗忘并失效旧上下文';
     drafting.flash();
+    sfx.play('click');
     await refreshFacts();
   } catch (error) {
     showError(error);
@@ -876,13 +1147,21 @@ async function connect() {
     const isQwen = backendConfig.moss_live?.provider !== 'moss';
     el('mode-badge-text').textContent = isLive ? (isQwen ? '实时 · QWEN' : '实时 · MOSS') : '离线演练';
     el('pipeline-badge').textContent = isLive ? (isQwen ? 'QWEN REALTIME' : 'MOSS-LIVE') : 'MOCK PIPELINE';
+    el('calibration-engine').textContent = isQwen
+      ? 'DEEPSEEK FLASH × QWEN 3.1 REALTIME'
+      : 'DEEPSEEK FLASH × MOSS-LIVE 1.0';
+    if (backendConfig.moss_live?.language && VALID_LANGS.includes(backendConfig.moss_live.language)) {
+      try {
+        if (!localStorage.getItem(LANG_STORAGE)) syncLanguageControls(backendConfig.moss_live.language);
+      } catch { /* ignore */ }
+    }
     if (session) {
       try { session = await api.restoreSession(session.id); }
       catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404) throw error;
-        session = await api.session(); clearConversation();
+        session = await api.session({ character_id: 'nazuna', system_prompt: currentPersonaPrompt }); clearConversation();
       }
-    } else session = await api.session();
+    } else session = await api.session({ character_id: 'nazuna', system_prompt: currentPersonaPrompt });
     if (generation !== connectionGeneration) return;
     ready = true;
     avatar?.connected(true);
@@ -895,7 +1174,7 @@ async function connect() {
   } catch (error) {
     if (generation !== connectionGeneration) return;
     if (error instanceof ApiError && (error.code === 'test_ui_requires_mock' || error.status === 401)) {
-      if (error.status === 401 && getLocalBearerToken()) setLocalBearerToken('');
+      if (error.status === 401 && getLocalBearerToken()) clearLocalBearerToken();
       el('live-auth-bar').hidden = false;
     }
     el('connection-status').textContent = '尚未接通'; showError(error); actions();
@@ -905,12 +1184,55 @@ async function connect() {
 el('live-auth-bar').addEventListener('submit', event => {
   event.preventDefault();
   const tokInput = el<HTMLInputElement>('live-token-input');
+  const rememberBox = el<HTMLInputElement>('live-token-remember');
   const val = tokInput.value.trim();
   if (!val) return;
-  setLocalBearerToken(val);
+  sfx.play('click');
+  setLocalBearerToken(val, rememberBox.checked);
   tokInput.value = '';
   void connect();
 });
+
+liveLockButton.addEventListener('click', () => {
+  sfx.play('click');
+  clearLocalBearerToken();
+  liveClient.disconnect();
+  void connect();
+});
+
+function stopActiveSpeech() {
+  if (liveClient.isConnected && liveSpeaking) {
+    if (backendConfig?.mode === 'mock') liveClient.sendMockBargeIn();
+    else liveClient.interrupt();
+  } else {
+    coordinator.cancel();
+  }
+}
+
+function exportConversationMarkdown() {
+  const nodes = [...el('messages').querySelectorAll<HTMLElement>('.message')];
+  if (!nodes.length) return;
+  const lines = [
+    `# 回声 · ECHO 对话卷面 (${el('session-label').textContent ?? ''})`,
+    `导出时间：${new Date().toLocaleString('zh-CN')}`,
+    `语音语言：${LIVE_LANG_LABELS[currentLiveLang]}`,
+    '',
+  ];
+  for (const node of nodes) {
+    const speaker = node.querySelector('.message-header span:nth-of-type(2)')?.textContent ?? node.dataset.role ?? '';
+    const time = node.querySelector('time')?.textContent ?? '';
+    const body = node.querySelector('.message-content')?.textContent?.trim() ?? '';
+    lines.push(`### ${speaker} (${time})`, '', body, '');
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `echo-nazuna-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+  sfx.play('memorySave');
+}
 
 function send() {
   if (!ready || screenBusy || !session || !input.value.trim()) return;
@@ -920,6 +1242,7 @@ function send() {
   const speak = soundCheckbox.checked;
   const unlocked = speak ? player.unlock() : Promise.resolve();
   void unlocked.catch(() => {});
+  sfx.play('send');
   input.value = ''; actions();
   coordinator.send(sid, text, withScreen, async () => {
     await unlocked;
@@ -939,60 +1262,111 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     event.preventDefault();
     floatingDock.close();
-    if (liveClient.isConnected && liveSpeaking && backendConfig?.mode === 'mock') {
-      liveClient.sendMockBargeIn();
-    } else {
-      coordinator.cancel();
+    stopActiveSpeech();
+    return;
+  }
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    const k = event.key.toLowerCase();
+    if (k === 'l') {
+      event.preventDefault();
+      const idx = VALID_LANGS.indexOf(currentLiveLang);
+      switchLiveLanguage(VALID_LANGS[(idx + 1) % VALID_LANGS.length], true);
+    } else if (k === 'm' && liveClient.isConnected && liveClient.hasMic) {
+      event.preventDefault();
+      const nextMuted = !liveClient.isMuted;
+      liveClient.setMicMuted(nextMuted);
+      sfx.play(nextMuted ? 'micOff' : 'micOn');
+    } else if (k === 'v' && ready) {
+      event.preventDefault();
+      void toggleLiveCall();
     }
   }
 });
-el('interrupt').addEventListener('click', () => {
-  if (liveClient.isConnected && liveSpeaking && backendConfig?.mode === 'mock') {
-    liveClient.sendMockBargeIn();
-  } else {
-    coordinator.cancel();
-  }
-});
-dockInterruptButton.addEventListener('click', () => {
-  if (liveClient.isConnected && liveSpeaking && backendConfig?.mode === 'mock') {
-    liveClient.sendMockBargeIn();
-  } else {
-    coordinator.cancel();
-  }
-});
+el('interrupt').addEventListener('click', stopActiveSpeech);
+dockInterruptButton.addEventListener('click', stopActiveSpeech);
+liveBargeButton.addEventListener('click', stopActiveSpeech);
 liveToggleButton.addEventListener('click', () => void toggleLiveCall());
 dockLiveButton.addEventListener('click', () => void toggleLiveCall());
 liveHangupButton.addEventListener('click', () => liveClient.disconnect());
-liveMuteButton.addEventListener('click', () => liveClient.setMicMuted(!liveClient.isMuted));
+liveMuteButton.addEventListener('click', () => {
+  const nextMuted = !liveClient.isMuted;
+  liveClient.setMicMuted(nextMuted);
+  sfx.play(nextMuted ? 'micOff' : 'micOn');
+});
+document.querySelectorAll<HTMLButtonElement>('[data-live-lang]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const lang = btn.dataset.liveLang as LiveLanguage;
+    if (VALID_LANGS.includes(lang)) switchLiveLanguage(lang, true);
+  });
+});
+liveLangSelect.addEventListener('change', () => {
+  const lang = liveLangSelect.value as LiveLanguage;
+  if (VALID_LANGS.includes(lang)) switchLiveLanguage(lang, true);
+});
 liveVoiceSelect.addEventListener('change', () => {
   if (liveVoiceSelect.value) liveClient.setVoice(liveVoiceSelect.value);
 });
 liveMockSayButton.addEventListener('click', () => {
   const prompt = MOCK_LIVE_UTTERANCES[mockUtteranceIndex % MOCK_LIVE_UTTERANCES.length];
   mockUtteranceIndex++;
+  sfx.play('send');
   liveClient.sendMockUtterance(prompt);
 });
 liveMockBargeButton.addEventListener('click', () => liveClient.sendMockBargeIn());
-el('reconnect').addEventListener('click', () => void connect());
-el('dismiss-notice').addEventListener('click', () => { el('notice').hidden = true; });
-document.querySelectorAll<HTMLButtonElement>('[data-prompt]').forEach(button => {
-  button.addEventListener('click', () => { input.value = button.dataset.prompt!; actions(); input.focus(); });
+exportChatButton.addEventListener('click', exportConversationMarkdown);
+el('avatar-nod').addEventListener('click', () => sfx.play('avatarReact'));
+el('avatar-wave').addEventListener('click', () => sfx.play('avatarReact'));
+el('avatar-canvas').addEventListener('click', () => sfx.play('avatarReact'));
+el('persona-apply-btn').addEventListener('click', () => {
+  const raw = el<HTMLTextAreaElement>('persona-prompt-input').value.trim();
+  if (!raw) return;
+  currentPersonaPrompt = raw;
+  try { localStorage.setItem(PERSONA_PROMPT_STORAGE, raw); } catch { /* ignore */ }
+  sfx.play('memorySave');
+  floatingDock.close();
+  void newSession();
 });
-el('sample-screen').addEventListener('click', () => { if (session && ready) void screen.useSample(session.id); });
+sfxCheckbox.checked = sfx.isEnabled;
+sfxCheckbox.addEventListener('change', () => {
+  sfx.setEnabled(sfxCheckbox.checked);
+  if (sfxCheckbox.checked) sfx.play('langSwitch');
+});
+el('sfx-preview').addEventListener('click', () => {
+  if (!sfx.isEnabled) {
+    sfx.setEnabled(true);
+    sfxCheckbox.checked = true;
+  }
+  sfx.play('memorySave');
+});
+el('reconnect').addEventListener('click', () => { sfx.play('click'); void connect(); });
+el('dismiss-notice').addEventListener('click', () => { sfx.play('click'); el('notice').hidden = true; });
+document.querySelectorAll<HTMLButtonElement>('[data-prompt]').forEach(button => {
+  button.addEventListener('click', () => { sfx.play('click'); input.value = button.dataset.prompt!; actions(); input.focus(); });
+});
+el('sample-screen').addEventListener('click', () => { sfx.play('click'); if (session && ready) void screen.useSample(session.id); });
 el('choose-screen').addEventListener('click', () => {
+  sfx.play('click');
   if (session && ready) void screen.chooseWindow(session.id).catch(showError);
 });
-el('stop-screen').addEventListener('click', () => void screen.stop());
-attachCheckbox.addEventListener('change', () => { el('attachment-chip').hidden = !attachCheckbox.checked; });
+el('stop-screen').addEventListener('click', () => { sfx.play('click'); void screen.stop(); });
+attachCheckbox.addEventListener('change', () => { sfx.play('click'); el('attachment-chip').hidden = !attachCheckbox.checked; });
 soundCheckbox.addEventListener('change', () => {
   player.setEnabled(soundCheckbox.checked);
-  if (soundCheckbox.checked) void player.unlock().catch(showError);
+  if (soundCheckbox.checked) { void player.unlock().catch(showError); sfx.play('click'); }
   else { replayAudio = []; replayTurn = ''; }
   actions();
 });
-el<HTMLInputElement>('volume').addEventListener('input', event => {
+const volumeSlider = el<HTMLInputElement>('volume');
+volumeSlider.value = String(storedVolume);
+player.setVolume(storedVolume / 100);
+sfx.setVolume(storedVolume / 100);
+el('volume-value').textContent = `${storedVolume}%`;
+volumeSlider.addEventListener('input', event => {
   const value = Number((event.target as HTMLInputElement).value);
-  player.setVolume(value / 100); el('volume-value').textContent = `${value}%`;
+  player.setVolume(value / 100);
+  sfx.setVolume(value / 100);
+  el('volume-value').textContent = `${value}%`;
+  try { localStorage.setItem(VOLUME_STORAGE, String(value)); } catch { /* ignore */ }
 });
 replayButton.addEventListener('click', async () => {
   const audio = [...replayAudio], turnId = replayTurn;
@@ -1029,11 +1403,12 @@ async function newSession() {
   ready = false; actions(); coordinator.cancel();
   await screen.stop();
   try {
-    const created = await api.session();
+    const created = await api.session({ character_id: 'nazuna', system_prompt: currentPersonaPrompt });
     if (generation !== connectionGeneration) return;
     session = created; ready = true;
     clearConversation();
     drafting.flash();
+    sfx.play('skyShift');
     avatar?.connected(true);
     el('session-label').textContent = `VOL.${session.id.slice(0, 8).toUpperCase()}`;
     actions(); input.focus();
@@ -1056,6 +1431,8 @@ window.addEventListener('pagehide', () => {
 applyMoodAtmosphere('offline');
 applySky(currentSky, false);
 applyPreset(currentPreset);
+syncLanguageControls(currentLiveLang);
+renderPersonaControls();
 perf.start();
 drawWave();
 void connect();

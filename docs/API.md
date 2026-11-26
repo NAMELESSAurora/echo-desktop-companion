@@ -26,7 +26,7 @@
 | GET | `/v1/moss/voices` | 列出当前实时语音引擎可用音色（Qwen 返回内置＋已配置的克隆音色；MOSS 代理 `GET /v1/audio/voices`） |
 | POST | `/v1/moss/voices/clone` | 上传 ≤10 MB `wav/mp3/m4a/flac` 参考音频克隆音色（MOSS 代理 `POST /v1/audio/voices`） |
 | POST | `/v1/live/ticket` | 为指定 `?sid=` 签发 30 秒一次性 WebSocket 握手票据（供浏览器 `live` 模式配合 Bearer 使用，避免在 URL 暴露长期令牌） |
-| WS | `/v1/sessions/{sid}/live` | 全双工实时语音通道（默认 Qwen 3.1 Realtime Flash，可选 MOSS-Live-1.0；可选 `?voice=&tz=&ticket=`，与 HTTP/SSE 轨并行共存） |
+| WS | `/v1/sessions/{sid}/live` | 全双工实时语音通道（默认 Qwen 3.1 Realtime Flash，可选 MOSS-Live-1.0；可选 `?voice=&lang=zh|ja|en&tz=&ticket=`，支持通话中 `change_language` 语言热切与 `interrupt` 手动打断） |
 
 ## 创建文字轮次
 

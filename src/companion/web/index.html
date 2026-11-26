@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#f3f0e9" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111318'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e83b1e'/%3E%3C/svg%3E" />
     <title>回声 · ECHO // 光蚀伴生舞台</title>
-    <script type="module" crossorigin src="/ui/assets/index-CZhjr0-k.js"></script>
-    <link rel="stylesheet" crossorigin href="/ui/assets/index-C03ytpaA.css">
+    <script type="module" crossorigin src="/ui/assets/index-DHcumaMR.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/assets/index-DK8107nt.css">
   </head>
   <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -27,6 +27,11 @@
       <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8"/></symbol>
       <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M9 5a3 3 0 0 1 6 0v5M5 11a7 7 0 0 0 11.2 5.6M12 18v3m-4 0h8M3 3l18 18"/></symbol>
       <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1Z"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
     </svg>
 
     <!-- z-0: WebGL2 Stage Sky + Analytical SDF Liquid Glass Canvas & CSS Fallback -->
@@ -77,6 +82,7 @@
     <!-- z-40: Fixed Top Telemetry HUD -->
     <header class="telemetry-hud">
       <div id="hud-brand-pill" class="hud-pill lg-pure-glass">
+        <img id="hud-avatar-mini" class="nazuna-mini-avatar" alt="七草荠" />
         <span class="hud-signal-dot" aria-hidden="true"></span>
         <span class="hud-brand-title">回声 · ECHO</span>
         <span class="hud-divider" aria-hidden="true"></span>
@@ -112,6 +118,9 @@
           <button id="mobile-new-session" type="button" class="hud-icon-btn mobile-only" title="新起一卷会话" aria-label="新起一卷会话" disabled>
             <svg class="icon"><use href="#i-plus" /></svg>
           </button>
+          <button id="live-lock-btn" type="button" class="hud-icon-btn" title="清除本机记住的访问令牌并锁定" aria-label="清除本地访问令牌" hidden>
+            <svg class="icon"><use href="#i-lock" /></svg>
+          </button>
           <button id="reconnect" type="button" class="hud-icon-btn" title="重新连接本地管线" aria-label="重新连接本地管线">
             <svg class="icon"><use href="#i-refresh" /></svg>
           </button>
@@ -129,7 +138,7 @@
           <span class="mono">EDITION 01 // CONVERSATION · VISION · MEMORY · PCM SPEECH</span>
         </div>
         <div class="calibration-right mono">
-          <span>DEEPSEEK × QWEN × MOSS-LIVE 1.0</span>
+          <span id="calibration-engine">DEEPSEEK × QWEN 3.1 REALTIME</span>
           <span class="sep">/</span>
           <span id="event-count">00 EVENTS</span>
         </div>
@@ -143,6 +152,10 @@
       <form id="live-auth-bar" class="live-auth-bar lg-card" hidden>
         <span class="mono live-auth-label">LIVE ACCESS TOKEN</span>
         <input id="live-token-input" type="password" autocomplete="off" placeholder="粘贴本机 api-token（系统托盘可一键复制）" aria-label="本地访问令牌" />
+        <label class="checkbox-label live-remember-label">
+          <input id="live-token-remember" type="checkbox" checked />
+          <span>本机记住</span>
+        </label>
         <button id="live-token-submit" type="submit" class="send-button compact">以本地令牌接入</button>
       </form>
 
@@ -157,9 +170,17 @@
               <span id="turn-status" class="panel-subtitle">静候第一句落笔</span>
             </div>
             <div class="panel-header-actions">
-              <button id="live-toggle-btn" type="button" class="micro-pill-btn live-pill-btn" aria-pressed="false" disabled>
+              <div id="live-lang-group" class="lang-pill-group" role="group" aria-label="实时语音语言热切 (Alt+L)" title="点击或按 Alt+L 一键热切语音语言（通话中实时生效）">
+                <button type="button" class="lang-pill is-active" data-live-lang="zh" aria-pressed="true">中</button>
+                <button type="button" class="lang-pill" data-live-lang="ja" aria-pressed="false">日</button>
+                <button type="button" class="lang-pill" data-live-lang="en" aria-pressed="false">EN</button>
+              </div>
+              <button id="live-toggle-btn" type="button" class="micro-pill-btn live-pill-btn" aria-pressed="false" title="拨通或挂断全双工语音 (Alt+V)" disabled>
                 <svg class="icon"><use href="#i-mic" /></svg>
                 <span>语音通话</span>
+              </button>
+              <button id="export-chat" type="button" class="hud-icon-btn compact" title="导出本卷对话记录 (Markdown)" aria-label="导出对话记录" disabled>
+                <svg class="icon"><use href="#i-download" /></svg>
               </button>
               <button id="toggle-stage-focus" type="button" class="micro-pill-btn" aria-pressed="false">展开幕布</button>
               <span id="pipeline-badge" class="pill-soft mono">MOCK PIPELINE</span>
@@ -168,9 +189,15 @@
 
           <section id="avatar-stage" class="avatar-stage" data-model="builtin" aria-label="虚拟形象实时互动">
             <div class="avatar-stage-top">
-              <div class="avatar-identity">
-                <span class="eyebrow">NIGHT PRESENCE · 伴生立绘</span>
-                <strong id="avatar-name">七草荠 · NAZUNA</strong>
+              <div class="avatar-identity-row">
+                <span class="nazuna-medallion stage-medallion" aria-hidden="true">
+                  <img id="stage-avatar-img" alt="七草荠头像" />
+                  <i class="medallion-dot"></i>
+                </span>
+                <div class="avatar-identity">
+                  <span class="eyebrow">NIGHT PRESENCE · 伴生立绘</span>
+                  <strong id="avatar-name">七草荠 · NAZUNA</strong>
+                </div>
               </div>
               <span id="avatar-status" class="avatar-status" role="status">幕布未启</span>
             </div>
@@ -222,21 +249,34 @@
             </div>
           </div>
 
-          <div id="live-call-bar" class="live-call-bar" role="region" aria-label="MOSS-Live 实时语音通话控制栏" hidden>
+          <div id="live-call-bar" class="live-call-bar" role="region" aria-label="实时语音通话控制栏" hidden>
             <div class="live-call-left">
-              <span class="live-pulse-dot" aria-hidden="true"></span>
-              <span id="live-call-state" class="live-call-state">正在连通 MOSS-Live…</span>
+              <span id="live-call-avatar" class="nazuna-medallion call-medallion" aria-hidden="true">
+                <img id="live-call-avatar-img" alt="七草荠通话头像" />
+                <span class="live-pulse-dot"></span>
+              </span>
+              <span id="live-call-state" class="live-call-state">正在连通实时语音…</span>
               <span id="live-call-timer" class="mono live-call-timer">00:00</span>
               <meter id="live-mic-meter" class="live-mic-meter" min="0" max="1" value="0" aria-label="麦克风输入音量"></meter>
             </div>
             <div class="live-call-controls">
+              <label class="sr-only" for="live-lang-select">选择实时语音语言</label>
+              <select id="live-lang-select" class="live-lang-select" aria-label="实时语音语言热切" title="通话中热切回应语言 (Alt+L)">
+                <option value="zh">中文</option>
+                <option value="ja">日本語</option>
+                <option value="en">English</option>
+              </select>
               <label class="sr-only" for="live-voice-select">选择实时音色</label>
               <select id="live-voice-select" class="live-voice-select" aria-label="实时语音音色" disabled>
                 <option value="">默认音色</option>
               </select>
-              <button id="live-mute-btn" type="button" class="live-ctrl-btn" aria-pressed="false" disabled>
+              <button id="live-mute-btn" type="button" class="live-ctrl-btn" aria-pressed="false" title="静音或恢复麦克风 (Alt+M)" disabled>
                 <svg class="icon"><use href="#i-mic" /></svg>
                 <span>静音</span>
+              </button>
+              <button id="live-barge-btn" type="button" class="live-ctrl-btn" title="手动打断当前回应 (Esc)" disabled>
+                <svg class="icon"><use href="#i-stop" /></svg>
+                <span>打断</span>
               </button>
               <button id="live-mock-say" type="button" class="live-ctrl-btn accent" hidden disabled>模拟口述</button>
               <button id="live-mock-barge" type="button" class="live-ctrl-btn" hidden disabled>模拟打断</button>
@@ -261,7 +301,7 @@
               disabled
             ></textarea>
             <div class="composer-actions">
-              <span class="input-hint mono">ENTER 发出 · SHIFT+ENTER 换行 · ESC 止声</span>
+              <span class="input-hint mono">ENTER 发出 · ESC 止声 · ALT+L 切语 · ALT+M 静音</span>
               <div class="composer-buttons">
                 <button id="interrupt" type="button" class="interrupt-button" disabled>
                   <svg class="icon"><use href="#i-stop" /></svg>
@@ -358,7 +398,21 @@
               </button>
             </div>
 
-            <p class="helper-text">离线态以 440 Hz 诊断音校验流式解码与口型共振，接入 Qwen AUDIO 3.1 后切换真人声色。</p>
+            <div class="sfx-row">
+              <div class="sfx-label-group">
+                <svg class="icon"><use href="#i-bell" /></svg>
+                <span>玻璃声学交互音效</span>
+              </div>
+              <div class="sfx-controls">
+                <button id="sfx-preview" type="button" class="text-button compact">试听</button>
+                <label class="switch compact">
+                  <input id="sfx-enabled" type="checkbox" checked aria-label="开启或关闭界面交互音效" />
+                  <span></span>
+                </label>
+              </div>
+            </div>
+
+            <p id="audio-helper" class="helper-text">内置玻璃声学微交互音效；实网态由 Qwen 3.1 七草荠克隆声纹驱动口型与共振光环。</p>
           </section>
 
           <!-- Card 3: Telemetry & Memory -->
@@ -446,10 +500,26 @@
           <div id="dock-preset-grid" class="dock-chip-grid two-col"></div>
         </div>
 
+        <div class="popover-section">
+          <div class="popover-label mono">伴生人设 · PERSONA PRESET</div>
+          <div id="dock-persona-grid" class="dock-chip-grid two-col"></div>
+          <textarea
+            id="persona-prompt-input"
+            class="persona-prompt-input"
+            rows="3"
+            maxlength="2000"
+            aria-label="自定义角色系统提示词"
+            placeholder="自定义七草荠的性格、口癖或陪伴模式…"
+          ></textarea>
+          <button id="persona-apply-btn" type="button" class="dock-flash-btn mono persona-apply-btn">
+            <span>应用人设并新起一卷</span>
+          </button>
+        </div>
+
         <div class="popover-footer">
           <button id="flash-test-btn" type="button" class="dock-flash-btn mono">
             <svg class="icon"><use href="#i-spark" /></svg>
-            <span>触发 45° 光蚀硬切</span>
+            <span>触发棱镜光幕扫掠</span>
           </button>
         </div>
       </section>

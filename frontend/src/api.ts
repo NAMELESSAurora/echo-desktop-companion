@@ -10,26 +10,50 @@ import type {
 } from './types';
 
 const TOKEN_STORAGE_KEY = 'companion:local-bearer';
+const TOKEN_PERSIST_KEY = 'companion:local-bearer-persist';
 let activeBearerToken = '';
+let tokenRemembered = false;
 
 try {
   if (typeof sessionStorage !== 'undefined') {
     activeBearerToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
   }
+  if (!activeBearerToken && typeof localStorage !== 'undefined') {
+    const saved = localStorage.getItem(TOKEN_PERSIST_KEY) || '';
+    if (saved) {
+      activeBearerToken = saved;
+      tokenRemembered = true;
+    }
+  } else if (typeof localStorage !== 'undefined' && localStorage.getItem(TOKEN_PERSIST_KEY)) {
+    tokenRemembered = true;
+  }
 } catch { /* ignore storage restrictions */ }
 
-export function setLocalBearerToken(token: string) {
+export function setLocalBearerToken(token: string, remember = false) {
   activeBearerToken = token.trim();
+  tokenRemembered = Boolean(activeBearerToken && remember);
   try {
     if (typeof sessionStorage !== 'undefined') {
       if (activeBearerToken) sessionStorage.setItem(TOKEN_STORAGE_KEY, activeBearerToken);
       else sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     }
+    if (typeof localStorage !== 'undefined') {
+      if (activeBearerToken && remember) localStorage.setItem(TOKEN_PERSIST_KEY, activeBearerToken);
+      else localStorage.removeItem(TOKEN_PERSIST_KEY);
+    }
   } catch { /* ignore */ }
+}
+
+export function clearLocalBearerToken() {
+  setLocalBearerToken('', false);
 }
 
 export function getLocalBearerToken(): string {
   return activeBearerToken;
+}
+
+export function isTokenRemembered(): boolean {
+  return tokenRemembered;
 }
 
 export class ApiError extends Error {
@@ -111,8 +135,11 @@ export class BackendApi implements TurnApi {
     if (config.mode !== 'mock') throw new ApiError('test_ui_requires_mock');
     return config;
   }
-  session(): Promise<Session> {
-    return request('POST', '/v1/sessions', { character_id: 'frontend-test' });
+  session(opts?: { character_id?: string; system_prompt?: string }): Promise<Session> {
+    return request('POST', '/v1/sessions', {
+      character_id: opts?.character_id || 'nazuna',
+      ...(opts?.system_prompt ? { system_prompt: opts.system_prompt } : {}),
+    });
   }
   restoreSession(sid: string): Promise<Session> { return request('GET', `/v1/sessions/${sid}`); }
   start(sid: string, payload: TurnPayload): Promise<CreatedTurn> {
@@ -137,6 +164,9 @@ export class BackendApi implements TurnApi {
   }
   facts(sid: string): Promise<{ facts: MemoryFact[] }> {
     return request('GET', `/v1/sessions/${sid}/memory`);
+  }
+  editFact(fid: string, text: string): Promise<unknown> {
+    return request('PATCH', `/v1/memory/facts/${fid}`, { text });
   }
   deleteFact(fid: string): Promise<unknown> {
     return request('DELETE', `/v1/memory/facts/${fid}`);

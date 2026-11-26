@@ -603,3 +603,50 @@ def test_settings_coerces_sample_rate_literals_from_dotenv(tmp_path):
     assert cfg.sample_rate == 24000
     assert cfg.moss_output_sample_rate == 24000
     assert cfg.live_provider == "qwen"
+
+
+def test_live_language_hot_switch_and_manual_interrupt(tmp_path):
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    app = create_app(make_settings(tmp_path))
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        sid = create_session_sync(client, headers)
+        with client.websocket_connect(
+            ws_url(f"/v1/sessions/{sid}/live?lang=ja"), headers=headers
+        ) as ws:
+            ready = ws.receive_json()
+            assert ready["action"] == "live.ready"
+            assert ready["data"]["language"] == "ja"
+
+            # Hot-switch to English mid-call
+            ws.send_json({"action": "change_language", "language": "en"})
+            changed = ws.receive_json()
+            assert changed == {"action": "language_changed", "data": {"language": "en"}}
+
+            # Invalid language is cleanly rejected without dropping socket
+            ws.send_json({"action": "change_language", "language": "xx"})
+            err = ws.receive_json()
+            assert err["action"] == "error"
+            assert err["data"]["error"]["code"] == "invalid_public_request"
+
+            # Start an utterance and manually interrupt it with action=interrupt
+            ws.send_json({"action": "mock.utterance", "text": "hello nazuna"})
+            seen_started = False
+            for _ in range(12):
+                msg = ws.receive()
+                if msg.get("text"):
+                    ev = json.loads(msg["text"])
+                    if ev["action"] == "response.audio.started":
+                        seen_started = True
+                        break
+            assert seen_started
+            ws.send_json({"action": "interrupt"})
+            seen_stop = False
+            for _ in range(15):
+                msg = ws.receive()
+                if msg.get("text"):
+                    ev = json.loads(msg["text"])
+                    if ev["action"] == "response.audio.stop":
+                        assert ev["data"]["reason"] == "user_interrupt"
+                        seen_stop = True
+                        break
+            assert seen_stop
