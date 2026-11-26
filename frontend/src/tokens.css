@@ -1,0 +1,70 @@
+/* Lumen Folio Design Tokens — Mineral Vellum, Architectural Ink & Dichroic Atmosphere */
+:root {
+  --paper-ground: #f3f0e9;
+  --paper-recess: rgba(255, 255, 255, 0.34);
+  --card-veil: rgba(252, 250, 246, 0.56);
+  --card-veil-strong: rgba(252, 250, 246, 0.8);
+  --popover-veil: rgba(250, 248, 244, 0.84);
+  --input-veil: rgba(255, 255, 255, 0.72);
+  --bubble-user: rgba(17, 19, 24, 0.065);
+  --bubble-assistant: rgba(255, 255, 255, 0.44);
+
+  --ink-primary: #111318;
+  --ink-secondary: rgba(17, 19, 24, 0.74);
+  --ink-muted: rgba(17, 19, 24, 0.54);
+  --ink-hairline: rgba(17, 19, 24, 0.13);
+  --ink-hairline-strong: rgba(17, 19, 24, 0.28);
+
+  --signal-vermilion: #e83b1e;
+  --signal-cyan: #009fb8;
+  --signal-acid: #b8f227;
+  --signal-green: #1f8a6e;
+
+  /* Dynamic Mood Atmosphere Tokens synced with AvatarState */
+  --atmo-a: #2d5da8;
+  --atmo-b: #d85a7f;
+  --atmo-foil-a: #ff3ba7;
+  --atmo-foil-b: #4ee2ec;
+  --atmo-signal: #e83b1e;
+
+  --cta-bg: rgba(17, 19, 24, 0.9);
+  --cta-bg-hover: #111318;
+  --cta-ink: #f8f6f2;
+  --chip-bg: rgba(17, 19, 24, 0.06);
+  --chip-bg-hover: rgba(17, 19, 24, 0.12);
+
+  --frame-inset: clamp(14px, 2vw, 28px);
+  --ease-razor: cubic-bezier(0.85, 0, 0.15, 1);
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.22, 1.28, 0.36, 1);
+
+  /* Offline-safe Editorial Typography Stack (zero external font CDN) */
+  --font-display: 'Segoe UI Variable Display', 'Bahnschrift', 'Microsoft YaHei UI', sans-serif;
+  --font-serif-cjk: 'Source Han Serif SC', 'Noto Serif SC', 'STSong', 'Songti SC', 'SimSun', Georgia, serif;
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, ui-monospace, monospace;
+}
+
+/* Auto light/dark contrast adaptation for dark Stage Skies (deep / eclipse / nebula / dawn) */
+html[data-sky-theme='dark'] {
+  --paper-ground: #12101c;
+  --paper-recess: rgba(255, 255, 255, 0.08);
+  --card-veil: rgba(14, 12, 24, 0.44);
+  --card-veil-strong: rgba(16, 14, 28, 0.7);
+  --popover-veil: rgba(16, 13, 28, 0.82);
+  --input-veil: rgba(12, 10, 22, 0.54);
+  --bubble-user: rgba(255, 255, 255, 0.12);
+  --bubble-assistant: rgba(12, 10, 22, 0.32);
+
+  --ink-primary: #f8f6f2;
+  --ink-secondary: rgba(248, 246, 242, 0.8);
+  --ink-muted: rgba(248, 246, 242, 0.56);
+  --ink-hairline: rgba(255, 255, 255, 0.16);
+  --ink-hairline-strong: rgba(255, 255, 255, 0.34);
+
+  --cta-bg: rgba(255, 255, 255, 0.92);
+  --cta-bg-hover: #ffffff;
+  --cta-ink: #111318;
+  --chip-bg: rgba(255, 255, 255, 0.1);
+  --chip-bg-hover: rgba(255, 255, 255, 0.18);
+}

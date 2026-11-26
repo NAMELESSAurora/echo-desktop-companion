@@ -1,0 +1,328 @@
+/* Translucent Architectural 3D Companion Stage — floats directly over the WebGL2 Sky Dome */
+.avatar-stage {
+  position: relative;
+  flex: 0 0 248px;
+  margin: 0;
+  border-bottom: 1px solid var(--ink-hairline);
+  background: radial-gradient(
+    ellipse 70% 62% at 50% 68%,
+    rgba(255, 255, 255, 0.24) 0%,
+    rgba(255, 255, 255, 0.05) 56%,
+    transparent 100%
+  );
+  overflow: hidden;
+  transition: flex-basis 340ms var(--ease-snap);
+}
+
+html[data-sky-theme='dark'] .avatar-stage {
+  background: radial-gradient(
+    ellipse 72% 62% at 50% 68%,
+    rgba(130, 165, 255, 0.14) 0%,
+    rgba(18, 16, 30, 0.08) 58%,
+    transparent 100%
+  );
+}
+
+/* Expanded immersive presence mode toggled by user */
+.conversation-panel.is-stage-focused .avatar-stage {
+  flex-basis: 380px;
+}
+
+.conversation-panel.is-stage-focused .avatar-canvas {
+  height: 338px;
+}
+
+/* Subtle architectural registration reticle inside the 3D stage */
+.avatar-stage::before {
+  content: '';
+  position: absolute;
+  inset: 12px 16px 48px;
+  border: 1px solid var(--ink-hairline);
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.avatar-stage-top {
+  position: absolute;
+  z-index: 2;
+  top: 20px;
+  left: 28px;
+  right: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.avatar-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 62%;
+}
+
+.avatar-identity .eyebrow {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+}
+
+.avatar-identity strong {
+  font-family: var(--font-serif-cjk);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-primary);
+  border: 1px solid var(--ink-hairline-strong);
+  background: var(--card-veil-strong);
+  border-radius: 9999px;
+  padding: 5px 11px;
+  transition: background-color 280ms ease, color 280ms ease, border-color 280ms ease;
+}
+
+.avatar-stage[data-mood='speaking'] .avatar-status {
+  background: rgba(216, 38, 116, 0.16);
+  color: #b81b60;
+  border-color: rgba(216, 38, 116, 0.4);
+}
+
+html[data-sky-theme='dark'] .avatar-stage[data-mood='speaking'] .avatar-status {
+  color: #ff98c4;
+}
+
+.avatar-stage[data-mood='thinking'] .avatar-status {
+  background: rgba(124, 108, 224, 0.16);
+  color: #4f41b0;
+  border-color: rgba(124, 108, 224, 0.36);
+}
+
+html[data-sky-theme='dark'] .avatar-stage[data-mood='thinking'] .avatar-status {
+  color: #cbbfff;
+}
+
+.avatar-stage[data-mood='looking'] .avatar-status {
+  background: rgba(0, 159, 184, 0.15);
+  color: #007488;
+  border-color: rgba(0, 159, 184, 0.36);
+}
+
+html[data-sky-theme='dark'] .avatar-stage[data-mood='looking'] .avatar-status {
+  color: #7eeeff;
+}
+
+.avatar-stage[data-mood='interrupted'] .avatar-status,
+.avatar-stage[data-mood='error'] .avatar-status {
+  background: rgba(232, 59, 30, 0.15);
+  color: var(--signal-vermilion);
+  border-color: rgba(232, 59, 30, 0.36);
+}
+
+html[data-sky-theme='dark'] .avatar-stage[data-mood='interrupted'] .avatar-status,
+html[data-sky-theme='dark'] .avatar-stage[data-mood='error'] .avatar-status {
+  color: #ffa594;
+}
+
+/* Lumen Folio Vertical Mincho Colophon Axis inside the Avatar Stage */
+.avatar-colophon {
+  position: absolute;
+  z-index: 2;
+  right: 26px;
+  top: 52px;
+  bottom: 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.colophon-code {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: var(--ink-muted);
+}
+
+.vertical-colophon-cjk {
+  margin: 0;
+  font-family: var(--font-serif-cjk);
+  font-size: 10.5px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  color: var(--ink-secondary);
+}
+
+.colophon-seal {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--atmo-signal);
+  color: var(--atmo-signal);
+  font-family: var(--font-serif-cjk);
+  font-size: 9px;
+  display: grid;
+  place-items: center;
+}
+
+.avatar-canvas {
+  display: block;
+  width: 100%;
+  height: 210px;
+  cursor: pointer;
+  touch-action: pan-y;
+  transition: height 340ms var(--ease-snap);
+}
+
+.avatar-canvas:focus-visible {
+  outline-offset: -6px;
+}
+
+.avatar-stage-bottom {
+  position: absolute;
+  z-index: 2;
+  left: 28px;
+  right: 28px;
+  bottom: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.avatar-note {
+  color: var(--ink-muted);
+  font-size: 10px;
+  max-width: 70%;
+  line-height: 1.5;
+}
+
+.mouth-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-muted);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+}
+
+.mouth-indicator meter {
+  width: 44px;
+  height: 5px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--ink-hairline);
+}
+
+.mouth-indicator meter::-webkit-meter-bar {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--ink-hairline);
+}
+
+.mouth-indicator meter::-webkit-meter-optimum-value {
+  border-radius: 9999px;
+  background: var(--atmo-signal);
+}
+
+.avatar-actions {
+  height: 38px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper-recess);
+  border-top: 1px solid var(--ink-hairline);
+}
+
+.avatar-actions button {
+  font-size: 11px;
+  border-radius: 9999px;
+  padding: 5px 11px;
+  color: var(--ink-secondary);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.avatar-actions button:hover:not(:disabled) {
+  background: var(--chip-bg-hover);
+  color: var(--ink-primary);
+}
+
+.avatar-actions .avatar-import {
+  margin-left: auto;
+  color: var(--ink-primary);
+  background: var(--chip-bg);
+  border: 1px solid var(--ink-hairline);
+}
+
+.avatar-message {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 52px;
+  margin: 0;
+  padding: 9px 12px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  background: var(--card-veil-strong);
+  border: 1px solid rgba(232, 59, 30, 0.36);
+  border-radius: 12px;
+  color: var(--ink-primary);
+  z-index: 3;
+}
+
+.avatar-stage[data-renderer='unavailable'] {
+  flex-basis: 128px;
+}
+
+.avatar-stage[data-renderer='unavailable'] .avatar-stage-bottom,
+.avatar-stage[data-renderer='unavailable'] .avatar-colophon {
+  display: none;
+}
+
+.avatar-stage[data-renderer='unavailable'] .avatar-actions {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+}
+
+@media (max-width: 680px) {
+  .avatar-stage {
+    flex-basis: 236px;
+  }
+  .avatar-canvas {
+    height: 194px;
+  }
+  .avatar-colophon {
+    display: none;
+  }
+  .avatar-stage-top {
+    left: 20px;
+    right: 20px;
+    top: 16px;
+  }
+  .avatar-stage-bottom {
+    left: 20px;
+    right: 20px;
+  }
+  .avatar-actions {
+    padding: 0 12px;
+    gap: 3px;
+  }
+  .avatar-actions button {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+}

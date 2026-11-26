@@ -1,0 +1,1 @@
+"""Desktop companion pipeline backend."""

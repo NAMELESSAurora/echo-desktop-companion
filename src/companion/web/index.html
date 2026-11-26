@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="zh-CN" data-sky-theme="light" data-glass-mode="fallback">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f0e9" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111318'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e83b1e'/%3E%3C/svg%3E" />
+    <title>回声 · ECHO // 光蚀伴生舞台</title>
+    <script type="module" crossorigin src="/ui/assets/index-DgSXhHrP.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/assets/index-Bkp-slHr.css">
+  </head>
+  <body>
+    <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z"/><path d="M7 10h8M7 14h5"/></symbol>
+      <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M7 8h3M7 8v3m10 2h-3m3 0v-3"/></symbol>
+      <symbol id="i-audio" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.3 6.3A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.7 5.7"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></symbol>
+      <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M6.2 6.2l2.8 2.8m6 6 2.8 2.8m0-11.6-2.8 2.8m-6 6-2.8 2.8"/></symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="17.5" cy="15.5" r="3.5"/></symbol>
+      <symbol id="i-stage" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 14h18"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8"/></symbol>
+      <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M9 5a3 3 0 0 1 6 0v5M5 11a7 7 0 0 0 11.2 5.6M12 18v3m-4 0h8M3 3l18 18"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1Z"/></symbol>
+    </svg>
+
+    <!-- z-0: WebGL2 Stage Sky + Analytical SDF Liquid Glass Canvas & CSS Fallback -->
+    <div id="stage-gl-host" class="stage-gl-host" aria-hidden="true"></div>
+    <div id="stage-fallback" class="stage-fallback" data-sky="pale" aria-hidden="true">
+      <div class="stage-fallback-orb"></div>
+      <div class="paper-grain-overlay"></div>
+    </div>
+
+    <!-- z-10: Architectural Drafting SVG Layer + Ghost Watermark + Pointer Reticle -->
+    <div id="drafting-overlay" class="drafting-overlay" aria-hidden="true">
+      <div id="drafting-watermark" class="drafting-watermark">00</div>
+      <svg class="drafting-svg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" fill="none">
+        <rect class="draft-line-soft" x="20" y="20" width="1400" height="860" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+        <g id="draft-outer-plane" class="draft-plane">
+          <circle class="draft-line-soft svg-draw-line" cx="960" cy="400" r="316" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+          <line class="draft-line-soft svg-draw-line" x1="340" y1="900" x2="1240" y2="0" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+          <line class="draft-line-subtle" x1="960" y1="20" x2="960" y2="880" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+          <line class="draft-line-subtle" x1="20" y1="400" x2="1420" y2="400" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+        </g>
+        <g id="draft-inner-plane" class="draft-plane">
+          <circle class="draft-line-soft draft-dashed" cx="960" cy="400" r="206" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+          <circle class="draft-line-soft" cx="960" cy="400" r="88" stroke-width="0.75" vector-effect="non-scaling-stroke" />
+          <circle class="draft-signal-dot" cx="960" cy="400" r="3.2" />
+        </g>
+        <g class="draft-line-strong" stroke-width="1">
+          <line x1="12" y1="20" x2="28" y2="20" /><line x1="20" y1="12" x2="20" y2="28" /><circle cx="20" cy="20" r="4.5" stroke-width="0.75" />
+          <line x1="1412" y1="20" x2="1428" y2="20" /><line x1="1420" y1="12" x2="1420" y2="28" /><circle cx="1420" cy="20" r="4.5" stroke-width="0.75" />
+          <line x1="12" y1="880" x2="28" y2="880" /><line x1="20" y1="872" x2="20" y2="888" /><circle cx="20" cy="880" r="4.5" stroke-width="0.75" />
+          <line x1="1412" y1="880" x2="1428" y2="880" /><line x1="1420" y1="872" x2="1420" y2="888" /><circle cx="1420" cy="880" r="4.5" stroke-width="0.75" />
+        </g>
+      </svg>
+      <div id="drafting-reticle" class="drafting-reticle">
+        <svg viewBox="0 0 36 36" fill="none">
+          <circle class="draft-line-strong" cx="18" cy="18" r="14" stroke-width="0.75" />
+          <line class="draft-line-strong" x1="18" y1="0" x2="18" y2="9" stroke-width="0.75" />
+          <line class="draft-line-strong" x1="18" y1="27" x2="18" y2="36" stroke-width="0.75" />
+          <line class="draft-line-strong" x1="0" y1="18" x2="9" y2="18" stroke-width="0.75" />
+          <line class="draft-line-strong" x1="27" y1="18" x2="36" y2="18" stroke-width="0.75" />
+          <circle class="draft-signal-dot" cx="18" cy="18" r="1.6" />
+        </svg>
+      </div>
+    </div>
+
+    <!-- z-30: 2-Frame Broadcast Difference Flash -->
+    <div id="broadcast-flash" class="broadcast-flash" aria-hidden="true"></div>
+
+    <!-- z-40: Fixed Top Telemetry HUD -->
+    <header class="telemetry-hud">
+      <div id="hud-brand-pill" class="hud-pill lg-pure-glass">
+        <span class="hud-signal-dot" aria-hidden="true"></span>
+        <span class="hud-brand-title">回声 · ECHO</span>
+        <span class="hud-divider" aria-hidden="true"></span>
+        <span id="hud-clock" class="mono hud-clock">--:--:--</span>
+        <span class="hud-divider hud-hide-sm" aria-hidden="true"></span>
+        <span id="hud-plate" class="mono hud-plate hud-hide-sm">PLATE_00 · 静候</span>
+        <span class="hud-divider hud-hide-md" aria-hidden="true"></span>
+        <span id="session-label" class="mono hud-session hud-hide-md">等待落卷</span>
+      </div>
+
+      <div class="hud-center">
+        <div id="sky-segmented" class="sky-segmented-host" aria-label="天幕着色器切换"></div>
+      </div>
+
+      <div class="hud-right">
+        <button
+          id="tier-button"
+          type="button"
+          class="hud-pill hud-tier-btn lg-pure-glass hud-hide-md"
+          title="点击切换渲染性能档位 (HIGH / MEDIUM / LOW / REDUCED)"
+        >
+          <span id="tier-label" class="mono">HIGH</span>
+          <span class="hud-slash">/</span>
+          <span id="fps-label" class="mono">60FPS</span>
+        </button>
+
+        <div id="hud-status-pill" class="hud-pill hud-status-pill lg-pure-glass">
+          <span id="connection-status" class="connection-text" role="status">正在接通</span>
+          <span class="mode-badge"><span></span>离线演练</span>
+          <button id="new-session" type="button" class="hud-icon-btn" title="新起一卷会话" aria-label="新起一卷会话" disabled>
+            <svg class="icon"><use href="#i-plus" /></svg>
+          </button>
+          <button id="mobile-new-session" type="button" class="hud-icon-btn mobile-only" title="新起一卷会话" aria-label="新起一卷会话" disabled>
+            <svg class="icon"><use href="#i-plus" /></svg>
+          </button>
+          <button id="reconnect" type="button" class="hud-icon-btn" title="重新连接本地管线" aria-label="重新连接本地管线">
+            <svg class="icon"><use href="#i-refresh" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- z-20: Main Architectural Workspace -->
+    <main class="folio-workspace">
+      <div class="calibration-strip">
+        <div class="calibration-left">
+          <div class="barcode-bars" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <span class="mono">EDITION 01 // CONVERSATION · VISION · MEMORY · PCM SPEECH</span>
+        </div>
+        <div class="calibration-right mono">
+          <span>DEEPSEEK × QWEN × MOSS-LIVE 1.0</span>
+          <span class="sep">/</span>
+          <span id="event-count">00 EVENTS</span>
+        </div>
+      </div>
+
+      <div id="notice" class="notice lg-card" role="alert" hidden>
+        <span id="notice-text"></span>
+        <button id="dismiss-notice" type="button" aria-label="关闭提示">×</button>
+      </div>
+
+      <div class="stage-grid">
+        <!-- Primary Stage: Live 3D Presence + Dialogue Stream + Composer -->
+        <section id="conversation-panel" class="conversation-panel lg-card" aria-label="光蚀对话舞台">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="mono panel-index">01</span>
+              <strong>伴生舞台 · 对话卷面</strong>
+              <span id="turn-status" class="panel-subtitle">静候第一句落笔</span>
+            </div>
+            <div class="panel-header-actions">
+              <button id="live-toggle-btn" type="button" class="micro-pill-btn live-pill-btn" aria-pressed="false" disabled>
+                <svg class="icon"><use href="#i-mic" /></svg>
+                <span>语音通话</span>
+              </button>
+              <button id="toggle-stage-focus" type="button" class="micro-pill-btn" aria-pressed="false">展开幕布</button>
+              <span class="pill-soft mono">MOCK PIPELINE</span>
+            </div>
+          </div>
+
+          <section id="avatar-stage" class="avatar-stage" data-model="builtin" aria-label="虚拟形象实时互动">
+            <div class="avatar-stage-top">
+              <div class="avatar-identity">
+                <span class="eyebrow">NIGHT PRESENCE · 伴生立绘</span>
+                <strong id="avatar-name">七草荠 · NAZUNA</strong>
+              </div>
+              <span id="avatar-status" class="avatar-status" role="status">幕布未启</span>
+            </div>
+
+            <div class="avatar-colophon" aria-hidden="true">
+              <span class="mono colophon-code">A-01</span>
+              <p class="vertical-colophon-cjk">夜行伴生・光蚀</p>
+              <span class="colophon-seal">荠</span>
+            </div>
+
+            <canvas
+              id="avatar-canvas"
+              class="avatar-canvas"
+              tabindex="0"
+              role="button"
+              aria-label="与七草荠互动，点击或按 Enter 挥手致意"
+            ></canvas>
+
+            <div class="avatar-stage-bottom">
+              <span id="avatar-note" class="avatar-note">移光随眸，轻触致意 · 真实声波驱动共振光环</span>
+              <label class="mouth-indicator">
+                <span class="mono">声波包络</span>
+                <meter id="avatar-mouth" min="0" max="1" value="0" aria-label="音频驱动的嘴部开合"></meter>
+              </label>
+            </div>
+
+            <div class="avatar-actions">
+              <button id="avatar-nod" type="button">轻颔</button>
+              <button id="avatar-wave" type="button">挥手致意</button>
+              <button id="avatar-import" class="avatar-import" type="button">载入 VRM</button>
+              <button id="avatar-reset" type="button" disabled>回归七草荠</button>
+              <input id="avatar-file" type="file" accept=".vrm" hidden />
+            </div>
+
+            <p id="avatar-message" class="avatar-message" role="status" hidden></p>
+          </section>
+
+          <div id="messages" class="messages" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions text">
+            <div id="empty-state" class="empty-state">
+              <span class="eyebrow">FOLIO 00 // FIRST UTTERANCE</span>
+              <h2 class="editorial-heading">先落一句，让声影在幕前苏醒。</h2>
+              <p>文字、窗口视野与实时声波在同一方天幕下汇流；离线演练态以诊断音校验全链路与口型共振。</p>
+              <div class="prompt-buttons">
+                <button type="button" data-prompt="你好，用两三句话介绍一下此刻的你。">初见问候<span>↗</span></button>
+                <button type="button" data-prompt="请看一下我附带的画面，告诉我你注意到了什么。">共看视窗<span>↗</span></button>
+                <button type="button" data-prompt="记住：我偏好深夜安静工作，喝无糖乌龙茶。">沉淀记忆<span>↗</span></button>
+                <button type="button" data-prompt="请分五句缓缓回应我：第一句，此刻天幕的色彩像什么？第二句，我们可以先静心读几页书。第三句，再放一张轻盈的器乐唱片。第四句，顺手梳理今天留下的灵感。第五句，现在试试随时打断我。">连句试断<span>↗</span></button>
+              </div>
+            </div>
+          </div>
+
+          <div id="live-call-bar" class="live-call-bar" role="region" aria-label="MOSS-Live 实时语音通话控制栏" hidden>
+            <div class="live-call-left">
+              <span class="live-pulse-dot" aria-hidden="true"></span>
+              <span id="live-call-state" class="live-call-state">正在连通 MOSS-Live…</span>
+              <span id="live-call-timer" class="mono live-call-timer">00:00</span>
+              <meter id="live-mic-meter" class="live-mic-meter" min="0" max="1" value="0" aria-label="麦克风输入音量"></meter>
+            </div>
+            <div class="live-call-controls">
+              <label class="sr-only" for="live-voice-select">选择实时音色</label>
+              <select id="live-voice-select" class="live-voice-select" aria-label="实时语音音色" disabled>
+                <option value="">默认音色</option>
+              </select>
+              <button id="live-mute-btn" type="button" class="live-ctrl-btn" aria-pressed="false" disabled>
+                <svg class="icon"><use href="#i-mic" /></svg>
+                <span>静音</span>
+              </button>
+              <button id="live-mock-say" type="button" class="live-ctrl-btn accent" hidden disabled>模拟口述</button>
+              <button id="live-mock-barge" type="button" class="live-ctrl-btn" hidden disabled>模拟打断</button>
+              <button id="live-hangup-btn" type="button" class="live-hangup-btn">
+                <svg class="icon"><use href="#i-phone" /></svg>
+                <span>挂断</span>
+              </button>
+            </div>
+          </div>
+
+          <form id="composer" class="composer">
+            <div id="attachment-chip" class="attachment-chip" hidden>
+              <svg class="icon"><use href="#i-screen" /></svg>
+              <span>本句发出时将附带当前视窗一帧</span>
+            </div>
+            <label class="sr-only" for="message-input">输入你想对回声说的话</label>
+            <textarea
+              id="message-input"
+              rows="2"
+              maxlength="8000"
+              placeholder="写下一句想法、提问，或以「记住：……」沉淀一条长期偏好…"
+              disabled
+            ></textarea>
+            <div class="composer-actions">
+              <span class="input-hint mono">ENTER 发出 · SHIFT+ENTER 换行 · ESC 止声</span>
+              <div class="composer-buttons">
+                <button id="interrupt" type="button" class="interrupt-button" disabled>
+                  <svg class="icon"><use href="#i-stop" /></svg>
+                  <span>打断</span>
+                  <span class="keycap">Esc</span>
+                </button>
+                <button id="send" type="submit" class="send-button" disabled>
+                  <span>发出</span>
+                  <svg class="icon"><use href="#i-arrow" /></svg>
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <!-- Right Inspector Stage: Optical Vision, PCM Audio, Telemetry & Memory -->
+        <aside class="inspector" aria-label="感知与遥测仪台">
+          <!-- Card 1: Optical Vision -->
+          <section id="screen-card" class="inspector-card lg-card screen-panel">
+            <div class="section-heading">
+              <div>
+                <span class="mono section-idx">02</span>
+                <svg class="icon"><use href="#i-screen" /></svg>
+                <h2>视窗共观</h2>
+              </div>
+              <span id="screen-status" class="small-status mono">未启视野</span>
+            </div>
+
+            <div id="screen-preview" class="screen-preview">
+              <div id="screen-placeholder" class="screen-placeholder">
+                <div class="viewfinder" aria-hidden="true">
+                  <i></i><i></i><i></i><i></i>
+                  <svg class="icon"><use href="#i-screen" /></svg>
+                </div>
+                <strong>择一扇窗，与它共看</strong>
+                <span>仅在发话瞬间采帧 · 绝不留存本地</span>
+              </div>
+              <video id="screen-video" muted playsinline hidden></video>
+              <canvas id="screen-sample" hidden></canvas>
+            </div>
+
+            <div class="screen-source">
+              <span class="status-dot"></span>
+              <span id="screen-source-name">尚未择定视窗</span>
+            </div>
+
+            <div class="screen-actions">
+              <button id="choose-screen" type="button" class="secondary-button" disabled>
+                <span>择取窗口</span>
+                <svg class="icon"><use href="#i-plus" /></svg>
+              </button>
+              <button id="sample-screen" type="button" class="text-button" disabled>载入样张</button>
+            </div>
+
+            <div class="screen-permissions">
+              <label class="checkbox-label">
+                <input id="attach-screen" type="checkbox" disabled />
+                <span>随句附带一帧</span>
+              </label>
+              <button id="stop-screen" type="button" class="text-button danger" disabled>撤回视野</button>
+            </div>
+
+            <p class="helper-text">窗口流仅限本地预览；撤回视野会立即释放权限并中断在途看屏轮次。</p>
+          </section>
+
+          <!-- Card 2: PCM Audio -->
+          <section id="audio-card" class="inspector-card lg-card audio-panel">
+            <div class="section-heading">
+              <div>
+                <span class="mono section-idx">03</span>
+                <svg class="icon"><use href="#i-audio" /></svg>
+                <h2>声景输出</h2>
+              </div>
+              <label class="switch">
+                <input id="sound-enabled" type="checkbox" checked aria-label="开启或关闭回应声音" />
+                <span></span>
+              </label>
+            </div>
+
+            <div id="audio-visual" class="audio-visual">
+              <canvas id="waveform" width="560" height="96" aria-hidden="true"></canvas>
+              <div class="audio-visual-meta">
+                <span id="audio-status">静候声波</span>
+                <span class="mono">PCM16 · 24 KHZ</span>
+              </div>
+            </div>
+
+            <div class="volume-row">
+              <svg class="icon"><use href="#i-audio" /></svg>
+              <input id="volume" type="range" min="0" max="100" value="45" aria-label="播放音量" />
+              <output id="volume-value" class="mono">45%</output>
+              <button id="replay" type="button" class="hud-icon-btn compact" aria-label="重播上一轮声轨" title="重播上一轮声轨" disabled>
+                <svg class="icon"><use href="#i-refresh" /></svg>
+              </button>
+            </div>
+
+            <p class="helper-text">离线态以 440 Hz 诊断音校验流式解码与口型共振，接入 Qwen AUDIO 3.1 后切换真人声色。</p>
+          </section>
+
+          <!-- Card 3: Telemetry & Memory -->
+          <section id="telemetry-card" class="inspector-card lg-card observation-panel">
+            <div class="section-heading">
+              <div class="card-tabs" role="tablist" aria-label="遥测与记忆面板切换">
+                <button id="tab-btn-telemetry" type="button" class="card-tab is-active" role="tab" aria-selected="true" aria-controls="panel-telemetry">遥测脉络</button>
+                <button id="tab-btn-memory" type="button" class="card-tab" role="tab" aria-selected="false" aria-controls="panel-memory">记忆印记 <span id="memory-count-badge" class="mono">0</span></button>
+              </div>
+              <span id="flow-state" class="small-status mono">待命</span>
+            </div>
+
+            <div id="panel-telemetry" class="tab-panel" role="tabpanel">
+              <div class="metrics">
+                <div><span>首字延迟</span><strong id="first-text" class="mono">—</strong></div>
+                <div><span>首音到达</span><strong id="first-audio" class="mono">—</strong></div>
+                <div><span>总计耗时</span><strong id="duration" class="mono">—</strong></div>
+              </div>
+              <div class="audio-counter">
+                <span>已入轨音频块</span>
+                <span class="mono"><b id="audio-chunks">0</b> CHUNKS</span>
+              </div>
+              <div class="model-ribbon mono">
+                <span>DEEPSEEK FLASH</span>
+                <span>QWEN AUDIO 3.1</span>
+                <span>MOSS-LIVE 1.0</span>
+              </div>
+              <details class="event-details">
+                <summary>
+                  <span>SSE / 实时事件脉络</span>
+                  <span id="log-count" class="mono">0</span>
+                </summary>
+                <ol id="event-log" aria-label="事件记录"></ol>
+              </details>
+            </div>
+
+            <div id="panel-memory" class="tab-panel" role="tabpanel" hidden>
+              <div class="memory-toolbar">
+                <button id="organize-memory" type="button" class="secondary-button compact" disabled>
+                  <svg class="icon"><use href="#i-memory" /></svg>
+                  <span>整理本卷记忆</span>
+                </button>
+                <span id="memory-status" class="small-status">等待文字沉淀</span>
+              </div>
+
+              <div class="memory-block">
+                <div class="memory-block-label mono">待确认候选 · PROPOSALS</div>
+                <ul id="memory-proposals" class="memory-list">
+                  <li class="memory-empty">发送「记住：……」后点击整理即可提取候选事实。</li>
+                </ul>
+              </div>
+
+              <div class="memory-block">
+                <div class="memory-block-label mono">跨卷已确认 · CONFIRMED FACTS</div>
+                <ul id="memory-facts" class="memory-list">
+                  <li class="memory-empty">尚无已确认的长期记忆。</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <!-- z-40: Floating Liquid Glass Metaball Dock + Draggable Stage-Sky / Lens Orb -->
+    <div class="floating-dock-shell">
+      <section id="stage-popover" class="stage-popover lg-card" aria-label="天幕着色器与液态玻璃光学设置" hidden>
+        <div class="popover-head">
+          <div class="popover-title mono">
+            <svg class="icon"><use href="#i-spark" /></svg>
+            <span>STAGE SHADER × LIQUID GLASS</span>
+          </div>
+          <button id="popover-close" type="button" class="hud-icon-btn compact" aria-label="关闭光学设置面板">
+            <svg class="icon"><use href="#i-close" /></svg>
+          </button>
+        </div>
+
+        <div class="popover-section">
+          <div class="popover-label mono">天幕着色器 · STAGE SKY</div>
+          <div id="dock-sky-grid" class="dock-chip-grid"></div>
+        </div>
+
+        <div class="popover-section">
+          <div class="popover-label mono">光学玻璃预设 · LENS OPTICS</div>
+          <div id="dock-preset-grid" class="dock-chip-grid two-col"></div>
+        </div>
+
+        <div class="popover-footer">
+          <button id="flash-test-btn" type="button" class="dock-flash-btn mono">
+            <svg class="icon"><use href="#i-spark" /></svg>
+            <span>触发 45° 光蚀硬切</span>
+          </button>
+        </div>
+      </section>
+
+      <div class="floating-dock-row">
+        <nav id="dock-bar" class="dock-bar lg-pure-glass" aria-label="快捷舞台工具栏">
+          <button id="dock-focus-btn" type="button" class="dock-action" aria-pressed="false">
+            <svg class="icon"><use href="#i-stage" /></svg>
+            <span>沉浸幕布</span>
+          </button>
+          <button id="dock-live-btn" type="button" class="dock-action" aria-pressed="false" disabled>
+            <svg class="icon"><use href="#i-mic" /></svg>
+            <span>语音通话</span>
+          </button>
+          <button id="dock-new-btn" type="button" class="dock-action" disabled>
+            <svg class="icon"><use href="#i-plus" /></svg>
+            <span>新起一卷</span>
+          </button>
+          <button id="dock-interrupt-btn" type="button" class="dock-action" disabled>
+            <svg class="icon"><use href="#i-stop" /></svg>
+            <span>止声打断</span>
+          </button>
+          <button id="dock-memory-btn" type="button" class="dock-action">
+            <svg class="icon"><use href="#i-memory" /></svg>
+            <span>记忆印记</span>
+          </button>
+          <a class="dock-action" href="/docs" target="_blank" rel="noopener">
+            <svg class="icon"><use href="#i-link" /></svg>
+            <span>接口文档</span>
+          </a>
+        </nav>
+
+        <button
+          id="dock-orb"
+          type="button"
+          class="dock-orb lg-pure-glass"
+          aria-label="打开天幕与液态玻璃设置；向左侧拖近体验液态融球"
+          aria-expanded="false"
+          title="点击切换天幕与玻璃预设 · 拖近左侧工具栏体验 GPU SDF 液态融球"
+        >
+          <svg class="icon"><use href="#i-compass" /></svg>
+        </button>
+      </div>
+    </div>
+
+  </body>
+</html>
