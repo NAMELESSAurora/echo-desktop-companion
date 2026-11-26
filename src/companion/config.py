@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     mock_delay_s: float = Field(default=0.012, ge=0, le=1)
     allowed_origins: list[str] = Field(default_factory=list)
 
+    @field_validator("sample_rate", "moss_output_sample_rate", mode="before")
+    @classmethod
+    def coerce_sample_rate(cls, value):
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+        return value
+
     @field_validator("deepseek_base_url", "qwen_tts_endpoint", "moss_rest_base_url")
     @classmethod
     def require_https(cls, value: str) -> str:

@@ -587,3 +587,19 @@ def test_live_idle_watchdog_ignores_silence_and_closes_to_prevent_billing(tmp_pa
             with pytest.raises(WebSocketDisconnect) as exc:
                 ws.receive_json()
             assert exc.value.code == 4000
+
+
+def test_settings_coerces_sample_rate_literals_from_dotenv(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "COMPANION_MODE=live\n"
+        "COMPANION_SAMPLE_RATE=24000\n"
+        "COMPANION_MOSS_OUTPUT_SAMPLE_RATE=24000\n"
+        "COMPANION_LIVE_PROVIDER=qwen\n",
+        encoding="utf-8",
+    )
+    cfg = Settings(_env_file=str(env_file), data_dir=tmp_path)
+    assert cfg.mode == "live"
+    assert cfg.sample_rate == 24000
+    assert cfg.moss_output_sample_rate == 24000
+    assert cfg.live_provider == "qwen"
