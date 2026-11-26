@@ -213,6 +213,14 @@
               role="button"
               aria-label="与七草荠互动，点击或按 Enter 挥手致意"
             ></canvas>
+            <canvas
+              id="avatar-live2d-canvas"
+              class="avatar-canvas"
+              tabindex="0"
+              role="button"
+              aria-label="与七草荠 Live2D 互动，点击或按 Enter 触发动作"
+              hidden
+            ></canvas>
 
             <div class="avatar-stage-bottom">
               <span id="avatar-note" class="avatar-note">移光随眸，轻触致意 · 真实声波驱动共振光环</span>
@@ -225,9 +233,10 @@
             <div class="avatar-actions">
               <button id="avatar-nod" type="button">轻颔</button>
               <button id="avatar-wave" type="button">挥手致意</button>
-              <button id="avatar-import" class="avatar-import" type="button">载入 VRM</button>
+              <button id="avatar-mode-toggle" type="button" hidden>切回 2.5D</button>
+              <button id="avatar-import" class="avatar-import" type="button">载入模型</button>
               <button id="avatar-reset" type="button" disabled>回归七草荠</button>
-              <input id="avatar-file" type="file" accept=".vrm" hidden />
+              <input id="avatar-file" type="file" accept=".p2lrt,.vrm" hidden />
             </div>
 
             <p id="avatar-message" class="avatar-message" role="status" hidden></p>

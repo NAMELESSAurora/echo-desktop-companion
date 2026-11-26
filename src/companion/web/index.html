@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#f3f0e9" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111318'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e83b1e'/%3E%3C/svg%3E" />
     <title>回声 · ECHO // 光蚀伴生舞台</title>
-    <script type="module" crossorigin src="/ui/assets/index-DHcumaMR.js"></script>
-    <link rel="stylesheet" crossorigin href="/ui/assets/index-DK8107nt.css">
+    <script type="module" crossorigin src="/ui/assets/index-B-n5oS0V.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/assets/index-BwMQ43mL.css">
   </head>
   <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -215,6 +215,14 @@
               role="button"
               aria-label="与七草荠互动，点击或按 Enter 挥手致意"
             ></canvas>
+            <canvas
+              id="avatar-live2d-canvas"
+              class="avatar-canvas"
+              tabindex="0"
+              role="button"
+              aria-label="与七草荠 Live2D 互动，点击或按 Enter 触发动作"
+              hidden
+            ></canvas>
 
             <div class="avatar-stage-bottom">
               <span id="avatar-note" class="avatar-note">移光随眸，轻触致意 · 真实声波驱动共振光环</span>
@@ -227,9 +235,10 @@
             <div class="avatar-actions">
               <button id="avatar-nod" type="button">轻颔</button>
               <button id="avatar-wave" type="button">挥手致意</button>
-              <button id="avatar-import" class="avatar-import" type="button">载入 VRM</button>
+              <button id="avatar-mode-toggle" type="button" hidden>切回 2.5D</button>
+              <button id="avatar-import" class="avatar-import" type="button">载入模型</button>
               <button id="avatar-reset" type="button" disabled>回归七草荠</button>
-              <input id="avatar-file" type="file" accept=".vrm" hidden />
+              <input id="avatar-file" type="file" accept=".p2lrt,.vrm" hidden />
             </div>
 
             <p id="avatar-message" class="avatar-message" role="status" hidden></p>

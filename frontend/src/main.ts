@@ -424,6 +424,7 @@ function setStageFocus(next: boolean) {
   toggleBtn.setAttribute('aria-pressed', String(next));
   toggleBtn.textContent = next ? '收拢幕布' : '展开幕布';
   dockFocusBtn.setAttribute('aria-pressed', String(next));
+  avatar?.setExpanded(next);
 }
 el('toggle-stage-focus').addEventListener('click', () => { sfx.play('click'); setStageFocus(!stageFocused); });
 el('dock-focus-btn').addEventListener('click', () => { sfx.play('click'); setStageFocus(!stageFocused); });
@@ -1317,6 +1318,8 @@ exportChatButton.addEventListener('click', exportConversationMarkdown);
 el('avatar-nod').addEventListener('click', () => sfx.play('avatarReact'));
 el('avatar-wave').addEventListener('click', () => sfx.play('avatarReact'));
 el('avatar-canvas').addEventListener('click', () => sfx.play('avatarReact'));
+el('avatar-live2d-canvas').addEventListener('click', () => sfx.play('avatarReact'));
+el('avatar-mode-toggle').addEventListener('click', () => sfx.play('click'));
 el('persona-apply-btn').addEventListener('click', () => {
   const raw = el<HTMLTextAreaElement>('persona-prompt-input').value.trim();
   if (!raw) return;

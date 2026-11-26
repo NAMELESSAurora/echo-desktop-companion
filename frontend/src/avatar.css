@@ -60,12 +60,13 @@ html[data-sky-theme='dark'] .avatar-stage {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-width: 62%;
+  min-width: 0;
 }
 
 .avatar-identity .eyebrow {
   font-size: 8.5px;
   letter-spacing: 0.16em;
+  white-space: nowrap;
 }
 
 .avatar-identity strong {

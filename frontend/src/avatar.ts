@@ -3,6 +3,7 @@ import { AvatarState, rms } from './avatar-state';
 import type { AvatarGesture, AvatarMood } from './avatar-state';
 import { BuiltinAvatar } from './avatar-drivers';
 import type { AvatarDriver } from './avatar-drivers';
+import { DEFAULT_LIVE2D_MODEL_URL, P2LLive2DController } from './p2l-driver';
 import { MAX_VRM_BYTES, validateVrm } from './vrm-file';
 
 const labels: Record<AvatarMood, string> = {
@@ -23,6 +24,12 @@ export class AvatarStage {
   private camera = new THREE.PerspectiveCamera(35, 1, .1, 40);
   private floor: THREE.Mesh | null = null;
   private driver: AvatarDriver | null = null;
+  private live2d: P2LLive2DController | null = null;
+  private live2dCanvas: HTMLCanvasElement | null = null;
+  private threeCanvas: HTMLCanvasElement;
+  private modeToggleBtn: HTMLButtonElement | null = null;
+  private builtinLive2dAvailable = false;
+  private stageExpanded = false;
   private frameId = 0;
   private previous = 0;
   private paused = false;
@@ -50,6 +57,9 @@ export class AvatarStage {
     this.mouthMeter = get('avatar-mouth'); this.message = get('avatar-message');
     this.reset = get('avatar-reset'); this.file = get('avatar-file');
     const canvas = get<HTMLCanvasElement>('avatar-canvas');
+    this.threeCanvas = canvas;
+    this.live2dCanvas = element.querySelector<HTMLCanvasElement>('#avatar-live2d-canvas');
+    this.modeToggleBtn = element.querySelector<HTMLButtonElement>('#avatar-mode-toggle');
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
       this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -72,23 +82,45 @@ export class AvatarStage {
       this.observer = new ResizeObserver(() => this.resize(canvas)); this.observer.observe(canvas);
       this.resize(canvas); this.resume();
       element.dataset.renderer = 'webgl';
+      void this.tryLoadDefaultLive2D();
     } catch {
       element.dataset.renderer = 'unavailable';
       this.showMessage('当前浏览器暂未启用 3D 舞台，可换 Chrome／Edge 打开；对话与声景不受影响。');
       canvas.hidden = true;
       element.querySelectorAll<HTMLButtonElement>('.avatar-actions button').forEach(button => { button.disabled = true; });
     }
-    canvas.addEventListener('pointermove', event => {
-      const box = canvas.getBoundingClientRect();
-      this.state.look((event.clientX - box.left) / box.width * 2 - 1, (event.clientY - box.top) / box.height * 2 - 1);
-    });
-    canvas.addEventListener('pointerleave', () => this.state.look(0, 0));
-    canvas.addEventListener('click', () => this.act('wave'));
-    canvas.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.act('wave'); }
-    });
+    const bindCanvasInteractions = (target: HTMLCanvasElement) => {
+      target.addEventListener('pointermove', event => {
+        const box = target.getBoundingClientRect();
+        this.state.look((event.clientX - box.left) / box.width * 2 - 1, (event.clientY - box.top) / box.height * 2 - 1);
+      });
+      target.addEventListener('pointerleave', () => this.state.look(0, 0));
+      target.addEventListener('click', event => {
+        if (this.live2d && target === this.live2dCanvas) {
+          const hit = this.live2d.hitTest(event.clientX, event.clientY);
+          this.act(hit && hit.toLowerCase().includes('head') ? 'nod' : 'wave');
+        } else {
+          this.act('wave');
+        }
+      });
+      target.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.act('wave'); }
+      });
+    };
+    bindCanvasInteractions(canvas);
+    if (this.live2dCanvas) bindCanvasInteractions(this.live2dCanvas);
     canvas.addEventListener('webglcontextlost', event => {
       event.preventDefault(); this.pause(); this.showMessage('3D 舞台显示暂时中断，请刷新恢复，对话仍可继续。');
+    });
+    this.modeToggleBtn?.addEventListener('click', () => {
+      if (this.live2d) {
+        this.activateThreeView();
+        this.element.dataset.model = 'builtin';
+        this.name.textContent = '七草荠 · NAZUNA';
+        this.note.textContent = '已切换 2.5D 立绘模式 · 点击「切回 Live2D」可恢复骨骼物理';
+      } else if (this.builtinLive2dAvailable) {
+        void this.tryLoadDefaultLive2D();
+      }
     });
     get<HTMLButtonElement>('avatar-nod').addEventListener('click', () => this.act('nod'));
     get<HTMLButtonElement>('avatar-wave').addEventListener('click', () => this.act('wave'));
@@ -120,25 +152,93 @@ export class AvatarStage {
     this.element.dataset.gestureStarted = now.toFixed(3);
     this.note.textContent = gesture === 'wave' ? '七草荠向你挥手致意' : '轻颔回应';
   }
-  private restore() {
-    this.generation++; this.replace(new BuiltinAvatar()); this.name.textContent = '七草荠 · NAZUNA';
-    this.reset.disabled = true; this.showMessage(''); this.note.textContent = '移光随眸，轻触致意 · 真实声波驱动共振光环';
-    this.element.dataset.model = 'builtin';
+  private activateLive2DView(ctrl: P2LLive2DController, displayName: string, isDefault: boolean) {
+    this.live2d?.dispose();
+    this.live2d = ctrl;
+    this.live2d.setExpanded(this.stageExpanded);
+    if (this.live2dCanvas) this.live2dCanvas.hidden = false;
+    this.threeCanvas.hidden = true;
+    this.name.textContent = displayName;
+    this.element.dataset.model = 'live2d';
+    this.reset.disabled = isDefault;
+    if (this.modeToggleBtn) {
+      this.modeToggleBtn.hidden = !this.builtinLive2dAvailable;
+      this.modeToggleBtn.textContent = '切回 2.5D';
+    }
+    this.note.textContent = 'Live2D 骨骼与发丝物理在线 · 眼神跟随 + 声波实时口型';
   }
+
+  private activateThreeView() {
+    this.live2d?.dispose();
+    this.live2d = null;
+    if (this.live2dCanvas) this.live2dCanvas.hidden = true;
+    this.threeCanvas.hidden = false;
+    this.resize(this.threeCanvas);
+    if (this.modeToggleBtn && this.builtinLive2dAvailable) {
+      this.modeToggleBtn.hidden = false;
+      this.modeToggleBtn.textContent = '切回 Live2D';
+    }
+  }
+
+  private async tryLoadDefaultLive2D() {
+    if (!this.live2dCanvas) return;
+    const generation = ++this.generation;
+    try {
+      const ctrl = await P2LLive2DController.loadFromUrl(this.live2dCanvas, DEFAULT_LIVE2D_MODEL_URL);
+      if (generation !== this.generation) { ctrl.dispose(); return; }
+      this.builtinLive2dAvailable = true;
+      this.activateLive2DView(ctrl, '七草荠 · LIVE2D', true);
+    } catch {
+      // Built-in Live2D asset absent or WebGL unsupported -> cleanly keep 2.5D portrait active
+      this.builtinLive2dAvailable = false;
+    }
+  }
+
+  setExpanded(expanded: boolean) {
+    this.stageExpanded = expanded;
+    this.live2d?.setExpanded(expanded);
+  }
+
+  private restore() {
+    this.generation++;
+    this.replace(new BuiltinAvatar());
+    this.name.textContent = '七草荠 · NAZUNA';
+    this.reset.disabled = true; this.showMessage('');
+    this.note.textContent = '移光随眸，轻触致意 · 真实声波驱动共振光环';
+    this.element.dataset.model = 'builtin';
+    if (this.builtinLive2dAvailable) {
+      void this.tryLoadDefaultLive2D();
+    } else {
+      this.activateThreeView();
+    }
+  }
+
   async importFile(file: File) {
     if (!this.renderer) { this.showMessage('3D 舞台不可用，暂时无法载入本地模型。'); return; }
     const generation = ++this.generation;
     this.reset.disabled = false;
-    this.showMessage('正在解析本机 VRM 资产…');
+    const lower = file.name.toLowerCase();
+    const isP2lrt = lower.endsWith('.p2lrt');
+    this.showMessage(isP2lrt ? '正在解析本机 Live2D (.p2lrt) 模型…' : '正在解析本机 VRM 资产…');
     try {
+      if (isP2lrt) {
+        if (!this.live2dCanvas) throw new Error('当前舞台不支持 Live2D 画布。');
+        const data = await file.arrayBuffer();
+        const ctrl = await P2LLive2DController.loadFromBytes(this.live2dCanvas, data);
+        if (generation !== this.generation) { ctrl.dispose(); return; }
+        this.activateLive2DView(ctrl, file.name.replace(/\.p2lrt$/i, '').slice(0, 40), false);
+        this.showMessage('');
+        return;
+      }
       if (file.size > MAX_VRM_BYTES) throw new Error('模型体积超过 64 MB 上限，请选用较轻量的自包含 VRM。');
-      if (!file.name.toLowerCase().endsWith('.vrm')) throw new Error('请选择标准 .vrm 模型文件。');
+      if (!lower.endsWith('.vrm')) throw new Error('请选择标准 .p2lrt（Live2D）或 .vrm 模型文件。');
       const data = await file.arrayBuffer();
       validateVrm(data);
       if (generation !== this.generation) return;
       const { loadVrm } = await import('./vrm-driver');
       const driver = await loadVrm(data);
       if (generation !== this.generation) { driver.dispose(); return; }
+      this.activateThreeView();
       this.replace(driver);
       this.name.textContent = file.name.replace(/\.vrm$/i, '').slice(0, 40);
       this.element.dataset.model = 'vrm';
@@ -179,8 +279,12 @@ export class AvatarStage {
     const analyser = this.analyser();
     if (analyser) analyser.getFloatTimeDomainData(this.samples); else this.samples.fill(0);
     const frame = this.state.frame(timestamp / 1000, delta, rms(this.samples), this.media.matches);
-    this.driver?.update(frame, Math.min(delta, .1), this.media.matches);
-    this.renderer.render(this.scene, this.camera);
+    if (this.live2d) {
+      this.live2d.updateAndDraw(frame, Math.min(delta, .1), this.media.matches);
+    } else {
+      this.driver?.update(frame, Math.min(delta, .1), this.media.matches);
+      this.renderer.render(this.scene, this.camera);
+    }
     this.mouthMeter.value = frame.mouth;
     this.element.dataset.mouth = frame.mouth.toFixed(3);
     this.peakMouth = Math.max(this.peakMouth, frame.mouth);

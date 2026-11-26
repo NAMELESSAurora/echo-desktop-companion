@@ -1,5 +1,6 @@
 import asyncio
 import json
+import mimetypes
 import secrets
 import sqlite3
 import sys
@@ -23,6 +24,9 @@ from companion.moss_live import LiveUpstream, MossLiveManager
 from companion.pipeline import Pipeline, PipelineError
 from companion.providers import Providers, build_providers
 from companion.store import StaleMemory, Store
+
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("application/octet-stream", ".p2lrt")
 
 security = HTTPBearer(auto_error=False)
 
@@ -66,7 +70,7 @@ def create_app(
             await bundle.close()
             await store.close()
 
-    app = FastAPI(title="Desktop Companion Pipeline", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Desktop Companion Pipeline", version="0.4.0", lifespan=lifespan)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
 
@@ -121,7 +125,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "mode": config.mode, "version": "0.3.0"}
+        return {"status": "ok", "mode": config.mode, "version": "0.4.0"}
 
     @app.post("/ui/connect", include_in_schema=False)
     async def connect_test_ui(request: Request):
@@ -156,7 +160,7 @@ def create_app(
             headers={
                 "Cache-Control": "no-store",
                 "Content-Security-Policy": (
-                    "default-src 'self'; script-src 'self'; style-src 'self'; "
+                    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; "
                     "img-src 'self' data: blob:; media-src 'self' blob:; "
                     "connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob:; "
                     "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"

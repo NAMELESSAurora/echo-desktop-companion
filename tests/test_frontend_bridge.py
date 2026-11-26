@@ -51,5 +51,12 @@ async def test_testbench_static_assets_and_csp(settings):
         assert 'id="message-input"' in response.text
         assert 'id="choose-screen"' in response.text
         assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+        assert "'wasm-unsafe-eval'" in response.headers["Content-Security-Policy"]
         assert "no-store" in response.headers["Cache-Control"]
         assert settings.api_token.get_secret_value() not in response.text
+        wasm_resp = await client.get("/ui/assets/live2d/p2l_runtime.wasm")
+        assert wasm_resp.status_code == 200
+        assert wasm_resp.content[:4] == b"\x00asm"
+        rig_resp = await client.get("/ui/assets/live2d/nazuna.p2lrt")
+        assert rig_resp.status_code == 200
+        assert len(rig_resp.content) > 100_000

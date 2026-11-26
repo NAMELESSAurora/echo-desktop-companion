@@ -59,12 +59,21 @@ def smoke_test_exe(exe_path: Path, port: int = 18765) -> None:
         if not healthy:
             raise RuntimeError("EXE did not become healthy within 25s")
 
-        # Verify built frontend HTML is bundled and served cleanly
+        # Verify built frontend HTML and Live2D WASM/rig assets are bundled and served cleanly
         with urllib.request.urlopen(f"{base}/", timeout=5.0) as resp:
             html = resp.read().decode("utf-8")
             assert resp.status == 200
             assert "回声 · ECHO" in html
             assert 'id="live-toggle-btn"' in html
+            assert 'id="avatar-live2d-canvas"' in html
+
+        with urllib.request.urlopen(f"{base}/ui/assets/live2d/p2l_runtime.wasm", timeout=5.0) as r:
+            wasm_head = r.read(4)
+            assert r.status == 200 and wasm_head == b"\x00asm"
+
+        with urllib.request.urlopen(f"{base}/ui/assets/live2d/nazuna.p2lrt", timeout=5.0) as r:
+            rig_bytes = r.read()
+            assert r.status == 200 and len(rig_bytes) > 100_000
 
         # Verify mock UI cookie bootstrap + MOSS voices endpoint work inside frozen EXE
         req = urllib.request.Request(
