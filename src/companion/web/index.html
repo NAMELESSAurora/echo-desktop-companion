@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#f3f0e9" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111318'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e83b1e'/%3E%3C/svg%3E" />
     <title>回声 · ECHO // 光蚀伴生舞台</title>
-    <script type="module" crossorigin src="/ui/assets/index-B-n5oS0V.js"></script>
-    <link rel="stylesheet" crossorigin href="/ui/assets/index-BwMQ43mL.css">
+    <script type="module" crossorigin src="/ui/assets/index-B87ac4ne.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/assets/index-Bgi7dDRn.css">
   </head>
   <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -233,8 +233,12 @@
             </div>
 
             <div class="avatar-actions">
-              <button id="avatar-nod" type="button">轻颔</button>
-              <button id="avatar-wave" type="button">挥手致意</button>
+              <button id="avatar-nod" type="button" data-gesture-btn="nod" title="轻颔回应">轻颔</button>
+              <button id="avatar-wave" type="button" data-gesture-btn="wave" title="抬手挥手致意">挥手致意</button>
+              <button id="avatar-think" type="button" data-gesture-btn="think" title="托腮思索姿态">托腮</button>
+              <button id="avatar-headpat" type="button" data-gesture-btn="headpat" title="轻摸头发（也可直接点击头发）">摸头</button>
+              <button id="avatar-poke" type="button" data-gesture-btn="poke" title="俏皮眨眼吐舌（也可直接点击脸颊）">俏皮</button>
+              <button id="avatar-expr-cycle" type="button" class="avatar-expr-btn" title="循环切换神态（自动 / 微笑 / 害羞 / 惊讶 / 慵懒 / 俏皮）">神态 · 自动</button>
               <button id="avatar-mode-toggle" type="button" hidden>切回 2.5D</button>
               <button id="avatar-import" class="avatar-import" type="button">载入模型</button>
               <button id="avatar-reset" type="button" disabled>回归七草荠</button>

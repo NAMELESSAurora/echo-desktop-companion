@@ -1,9 +1,32 @@
 export type AvatarMood = 'offline' | 'idle' | 'thinking' | 'looking' | 'replying' | 'speaking' | 'interrupted' | 'error';
-export type AvatarGesture = 'nod' | 'wave';
+export type AvatarGesture = 'nod' | 'wave' | 'think' | 'headpat' | 'poke';
+export type AvatarExpressionPreset = 'auto' | 'smile' | 'shy' | 'surprised' | 'sleepy' | 'cheeky';
+
 export interface AvatarFrame {
-  mood: AvatarMood; mouth: number; blink: number; gazeX: number; gazeY: number;
-  breath: number; gesture: AvatarGesture | null; gestureProgress: number; happy: number;
+  mood: AvatarMood;
+  mouth: number;
+  blink: number;
+  gazeX: number;
+  gazeY: number;
+  breath: number;
+  gesture: AvatarGesture | null;
+  gestureProgress: number;
+  happy: number;
 }
+
+export interface SpectralHint {
+  low: number;
+  mid: number;
+  high: number;
+}
+
+const GESTURE_DURATIONS: Record<AvatarGesture, number> = {
+  nod: 1.25,
+  wave: 2.8,
+  think: 3.0,
+  headpat: 2.4,
+  poke: 2.0,
+};
 
 export function rms(samples: Float32Array): number {
   if (!samples.length) return 0;
@@ -14,6 +37,23 @@ export function rms(samples: Float32Array): number {
 
 export function mouthTarget(level: number): number {
   return Math.min(1, Math.max(0, (level - .002) * 55));
+}
+
+export function extractSpectralHint(bins: Uint8Array): SpectralHint {
+  if (!bins.length) return { low: 0, mid: 0, high: 0 };
+  const n = bins.length;
+  const lowEnd = Math.max(1, Math.floor(n * 0.14));
+  const midEnd = Math.max(lowEnd + 1, Math.floor(n * 0.45));
+  const highEnd = Math.max(midEnd + 1, Math.floor(n * 0.85));
+  let low = 0, mid = 0, high = 0;
+  for (let i = 0; i < lowEnd; i++) low += bins[i];
+  for (let i = lowEnd; i < midEnd; i++) mid += bins[i];
+  for (let i = midEnd; i < highEnd; i++) high += bins[i];
+  return {
+    low: low / (lowEnd * 255),
+    mid: mid / ((midEnd - lowEnd) * 255),
+    high: high / ((highEnd - midEnd) * 255),
+  };
 }
 
 // Rendering-independent state. Text generation never pretends to be audible speech.
@@ -77,16 +117,21 @@ export class AvatarState {
     this.gazeY += (this.gazeTargetY - this.gazeY) * gazeBlend;
     const cycle = now % 4.7;
     const blink = reducedMotion || cycle > .16 ? 0 : Math.sin(cycle / .16 * Math.PI);
-    const gestureDuration = this.gesture?.type === 'wave' ? 2.6 : 1.25;
+    const gestureDuration = this.gesture ? GESTURE_DURATIONS[this.gesture.type] : 1.25;
     const gestureProgress = this.gesture ? Math.min(1, Math.max(0, (now - this.gesture.started) / gestureDuration)) : 0;
     if (gestureProgress >= 1) this.gesture = null;
+    const happy = this.gesture === null
+      ? (mood === 'speaking' ? .12 : 0)
+      : this.gesture.type === 'headpat' ? .92
+      : this.gesture.type === 'wave' || this.gesture.type === 'poke' ? .72
+      : this.gesture.type === 'think' ? .08 : .52;
     return {
       mood, mouth: this.mouth, blink,
       gazeX: reducedMotion ? 0 : this.gazeX,
       gazeY: reducedMotion ? 0 : this.gazeY,
       breath: reducedMotion ? 0 : Math.sin(now * 1.8) * .028,
       gesture: this.gesture?.type ?? null, gestureProgress,
-      happy: this.gesture ? .65 : mood === 'speaking' ? .12 : 0,
+      happy,
     };
   }
 }

@@ -30,7 +30,7 @@ from companion.config import Settings
 
 APP_NAME = "EchoCompanion"
 APP_TITLE = "回声 · ECHO"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 

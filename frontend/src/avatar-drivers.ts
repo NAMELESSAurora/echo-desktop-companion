@@ -151,18 +151,28 @@ export class BuiltinAvatar implements AvatarDriver {
     const p = frame.gestureProgress;
     const envelope = frame.gesture ? Math.sin(Math.PI * p) : 0;
 
-    // Gesture choreography (nod & playful wave bounce)
+    // Gesture choreography (nod, playful wave, thinking lean, cozy headpat, cheeky poke)
     const nodPitch = frame.gesture === 'nod'
       ? (reduced ? 0.06 : Math.sin(p * Math.PI * 4) * 0.095) * envelope
+      : frame.gesture === 'headpat'
+      ? (reduced ? 0.05 : (0.06 + Math.pow(Math.sin(p * Math.PI * 3), 2) * 0.05)) * envelope
       : 0;
     const nodDip = frame.gesture === 'nod'
       ? (reduced ? -0.03 : -Math.abs(Math.sin(p * Math.PI * 2)) * 0.055) * envelope
+      : frame.gesture === 'headpat'
+      ? (reduced ? -0.04 : -(0.035 + Math.pow(Math.sin(p * Math.PI * 3), 2) * 0.04)) * envelope
       : 0;
     const waveTilt = frame.gesture === 'wave'
       ? (reduced ? -0.045 : Math.sin(p * Math.PI * 5) * 0.065) * envelope
+      : frame.gesture === 'think'
+      ? 0.055 * envelope
+      : frame.gesture === 'poke'
+      ? (reduced ? -0.05 : -Math.sin(p * Math.PI * 3) * 0.085) * envelope
       : 0;
     const waveLift = frame.gesture === 'wave'
       ? (reduced ? 0.04 : Math.abs(Math.sin(p * Math.PI * 3)) * 0.075) * envelope
+      : frame.gesture === 'poke'
+      ? (reduced ? 0.02 : Math.sin(p * Math.PI) * 0.045) * envelope
       : 0;
 
     // Real audio RMS cadence vitality

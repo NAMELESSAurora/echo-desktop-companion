@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_P2LRT_BYTES, P2LLive2DController } from '../src/p2l-driver';
+import {
+  EXPRESSION_PRESET_ORDER,
+  getExpressionLabel,
+  MAX_P2LRT_BYTES,
+  P2LLive2DController,
+} from '../src/p2l-driver';
 import type { AvatarFrame } from '../src/avatar-state';
 
 function makeFrame(overrides: Partial<AvatarFrame> = {}): AvatarFrame {
@@ -17,22 +22,59 @@ function makeFrame(overrides: Partial<AvatarFrame> = {}): AvatarFrame {
   };
 }
 
-describe('P2LLive2DController', () => {
-  it('rejects empty or oversized .p2lrt buffers before touching WebAssembly', async () => {
-    const canvas = { hidden: false } as unknown as HTMLCanvasElement;
-    await expect(P2LLive2DController.loadFromBytes(canvas, new ArrayBuffer(4))).rejects.toThrow('无效');
-    const fakeHuge = { byteLength: MAX_P2LRT_BYTES + 1 } as ArrayBuffer;
-    await expect(P2LLive2DController.loadFromBytes(canvas, fakeHuge)).rejects.toThrow('64 MB');
-  });
+function makeMockPlayer(withMultiPose = true) {
+  const paramDefs = withMultiPose
+    ? [
+        { id: 'ParamAngleX', min: -45, max: 45, default: 0 },
+        { id: 'ParamAngleY', min: -30, max: 30, default: 0 },
+        { id: 'ParamAngleZ', min: -30, max: 30, default: 0 },
+        { id: 'ParamBodyAngleY', min: -10, max: 10, default: 0 },
+        { id: 'ParamBodyAngleZ', min: -10, max: 10, default: 0 },
+        { id: 'ParamEyeLOpen', min: 0, max: 2, default: 1 },
+        { id: 'ParamEyeROpen', min: 0, max: 2, default: 1 },
+        { id: 'ParamEyeLSmile', min: 0, max: 1, default: 0 },
+        { id: 'ParamEyeRSmile', min: 0, max: 1, default: 0 },
+        { id: 'ParamCheek', min: 0, max: 1, default: 0 },
+        { id: 'ParamMouthOpenY', min: 0, max: 1, default: 0 },
+        { id: 'ParamMouthForm', min: -1, max: 1, default: 0 },
+        { id: 'ParamTongueOut', min: 0, max: 1, default: 0 },
+        { id: 'ParamA', min: 0, max: 1, default: 0 },
+        { id: 'ParamI', min: 0, max: 1, default: 0 },
+        { id: 'ParamU', min: 0, max: 1, default: 0 },
+        { id: 'ParamE', min: 0, max: 1, default: 0 },
+        { id: 'ParamO', min: 0, max: 1, default: 0 },
+        { id: 'ParamJawOpen', min: 0, max: 1, default: 0 },
+        { id: 'ParamHandPose', min: 0, max: 2, default: 0 },
+        { id: 'ParamWaveSwing', min: -1, max: 1, default: 0 },
+        { id: 'ParamThinkSway', min: -1, max: 1, default: 0 },
+      ]
+    : [];
 
-  it('drives lipSync, inverted-Y lookAt, gestures, wind, and reducedMotion cleanly', () => {
-    const mockPlayer = {
-      width: 636,
-      height: 960,
-      clips: ['Idle', 'Nod', 'Wave'],
-      parameters: [],
-      expressions: ['smile', 'surprised', 'sleepy', 'sad'],
-      hitAreas: ['HitAreaHead'],
+  const overrides = new Map<string, { value: number; weight: number }>();
+  const rt = {
+    p2l_play_layer: vi.fn(),
+    p2l_set_parameter_override: vi.fn((_rig: number, idx: number, val: number, w: number) => {
+      const def = paramDefs[idx];
+      if (def) overrides.set(def.id, { value: val, weight: w });
+    }),
+    p2l_clear_parameter_overrides: vi.fn(() => overrides.clear()),
+    p2l_physics_wind: vi.fn(),
+    p2l_behavior_strength: vi.fn(),
+    p2l_blink_settings: vi.fn(),
+  };
+
+  return {
+    overrides,
+    rt,
+    player: {
+      width: 1280,
+      height: 1280,
+      rig: 42,
+      rt,
+      clips: withMultiPose ? [] : ['Idle', 'Nod', 'Wave'],
+      parameters: paramDefs.map(p => p.id),
+      expressions: ['smile', 'shy', 'surprised', 'sleepy', 'sad'],
+      hitAreas: ['HitAreaHead', 'HitAreaFace', 'HitAreaBody'],
       advancedFeatures: 7,
       view: { zoom: 1, x: 0, y: 0 },
       play: vi.fn(),
@@ -42,8 +84,8 @@ describe('P2LLive2DController', () => {
       lookAt: vi.fn(),
       lipSync: vi.fn(),
       setParameter: vi.fn(),
-      parameterRanges: vi.fn(() => []),
-      parameterValues: vi.fn(() => []),
+      parameterRanges: vi.fn(() => paramDefs),
+      parameterValues: vi.fn(() => paramDefs.map(p => p.default)),
       wind: vi.fn(),
       behaviors: vi.fn(),
       resetSimulation: vi.fn(),
@@ -52,50 +94,102 @@ describe('P2LLive2DController', () => {
       update: vi.fn(),
       draw: vi.fn(),
       dispose: vi.fn(),
-    };
+    },
+  };
+}
+
+describe('P2LLive2DController', () => {
+  it('rejects empty or oversized .p2lrt buffers before touching WebAssembly', async () => {
     const canvas = { hidden: false } as unknown as HTMLCanvasElement;
-    // Construct via internal constructor for deterministic unit verification
+    await expect(P2LLive2DController.loadFromBytes(canvas, new ArrayBuffer(4))).rejects.toThrow('无效');
+    const fakeHuge = { byteLength: MAX_P2LRT_BYTES + 1 } as ArrayBuffer;
+    await expect(P2LLive2DController.loadFromBytes(canvas, fakeHuge)).rejects.toThrow('64 MB');
+  });
+
+  it('drives multi-pose hand switching, wrist wave, headpat blush, poke wink/blep, and 5-vowel lip-sync', () => {
+    const { player, rt, overrides } = makeMockPlayer(true);
+    const canvas = { hidden: false } as unknown as HTMLCanvasElement;
     const CtrlCtor = P2LLive2DController as unknown as new (
-      player: typeof mockPlayer,
-      canvas: HTMLCanvasElement,
+      p: typeof player,
+      c: HTMLCanvasElement,
     ) => P2LLive2DController;
-    const ctrl = new CtrlCtor(mockPlayer, canvas);
+    const ctrl = new CtrlCtor(player, canvas);
 
-    expect(mockPlayer.setAdvanced).toHaveBeenCalledWith(7);
-    expect(mockPlayer.play).toHaveBeenCalledWith('Idle');
+    expect(rt.p2l_behavior_strength).toHaveBeenCalled();
+    expect(rt.p2l_blink_settings).toHaveBeenCalled();
 
-    ctrl.updateAndDraw(makeFrame({ mood: 'speaking', mouth: 0.6, gazeX: 0.5, gazeY: -0.5, gesture: 'wave' }), 0.033, false);
-    expect(mockPlayer.lipSync).toHaveBeenLastCalledWith(expect.any(Number));
-    expect(mockPlayer.lipSync.mock.calls.at(-1)?.[0]).toBeGreaterThan(0.3);
-    // gazeY = -0.5 (looking up in screen coords) -> positive Y in p2l coordinates
-    const [lx, ly] = mockPlayer.lookAt.mock.calls.at(-1) as [number, number];
-    expect(lx).toBeGreaterThan(0.3);
-    expect(ly).toBeGreaterThan(0.3);
-    expect(mockPlayer.play).toHaveBeenCalledWith('Wave');
-    expect(mockPlayer.expression).toHaveBeenCalledWith('smile');
-    expect(mockPlayer.wind).toHaveBeenCalled();
-    expect(mockPlayer.update).toHaveBeenLastCalledWith(0.033);
-    expect(mockPlayer.draw).toHaveBeenCalled();
+    // 1. Wave switches ParamHandPose toward 1 and swings ParamWaveSwing
+    for (let i = 0; i < 8; i++) {
+      ctrl.updateAndDraw(makeFrame({ gesture: 'wave', gestureProgress: 0.35 }), 0.05, false);
+    }
+    expect(overrides.get('ParamHandPose')?.value).toBeGreaterThan(0.8);
+    expect(Math.abs(overrides.get('ParamWaveSwing')?.value ?? 0)).toBeGreaterThan(0.1);
+    expect(rt.p2l_physics_wind).toHaveBeenCalled();
 
-    ctrl.updateAndDraw(makeFrame({ mood: 'interrupted' }), 0.033, false);
-    expect(mockPlayer.expression).toHaveBeenLastCalledWith('surprised');
+    // 2. Thinking mood automatically raises ParamHandPose toward 2 (chin-rest!)
+    for (let i = 0; i < 12; i++) {
+      ctrl.updateAndDraw(makeFrame({ mood: 'thinking' }), 0.05, false);
+    }
+    expect(overrides.get('ParamHandPose')?.value).toBeGreaterThan(1.7);
 
-    // Reduced motion halts step progression and skips ambient wind
-    mockPlayer.wind.mockClear();
+    // 3. Headpat closes eyes into smiling crescents with full anime blush
+    ctrl.updateAndDraw(makeFrame({ gesture: 'headpat', gestureProgress: 0.5 }), 0.033, false);
+    expect(overrides.get('ParamEyeLOpen')?.value).toBe(0);
+    expect(overrides.get('ParamEyeLSmile')?.value).toBe(1);
+    expect(overrides.get('ParamCheek')?.value).toBeGreaterThan(0.9);
+
+    // 4. Poke winks left eye and sticks tongue out (blep!)
+    ctrl.updateAndDraw(makeFrame({ gesture: 'poke', gestureProgress: 0.5 }), 0.033, false);
+    expect(overrides.get('ParamEyeLOpen')?.value).toBe(0);
+    expect(overrides.get('ParamTongueOut')?.value).toBeGreaterThan(0.8);
+
+    // 5. Speaking with spectral formants drives vowels A/I/U/E/O
+    ctrl.updateAndDraw(
+      makeFrame({ mood: 'speaking', mouth: 0.75 }),
+      0.033,
+      false,
+      { low: 0.1, mid: 0.85, high: 0.2 },
+    );
+    expect(overrides.get('ParamA')?.value).toBeGreaterThan(0.15);
+
+    // 6. Manual expression preset pins shy blush
+    ctrl.setExpressionPreset('shy');
+    expect(ctrl.getExpressionPreset()).toBe('shy');
+    ctrl.updateAndDraw(makeFrame({ mood: 'idle' }), 0.033, false);
+    expect(overrides.get('ParamCheek')?.value).toBeGreaterThan(0.9);
+    expect(EXPRESSION_PRESET_ORDER.map(getExpressionLabel)).toContain('害羞');
+
+    // 7. Reduced motion halts step progression and skips wind
+    rt.p2l_physics_wind.mockClear();
+    player.wind.mockClear();
     ctrl.updateAndDraw(makeFrame({ mood: 'idle' }), 0.033, true);
-    expect(mockPlayer.expression).toHaveBeenLastCalledWith(null);
-    expect(mockPlayer.wind).not.toHaveBeenCalled();
-    expect(mockPlayer.update).toHaveBeenLastCalledWith(0);
+    expect(rt.p2l_physics_wind).not.toHaveBeenCalled();
+    expect(player.wind).not.toHaveBeenCalled();
+    expect(player.update).toHaveBeenLastCalledWith(0);
 
     expect(ctrl.hitTest(10, 20)).toBe('HitAreaHead');
     ctrl.setExpanded(true);
-    expect(mockPlayer.view.zoom).toBeLessThan(1.3);
+    expect(player.view.zoom).toBeLessThan(1.45);
 
     ctrl.dispose();
-    expect(mockPlayer.dispose).toHaveBeenCalledTimes(1);
-    // Subsequent updates after dispose are no-ops
-    mockPlayer.draw.mockClear();
+    expect(player.dispose).toHaveBeenCalledTimes(1);
+    player.draw.mockClear();
     ctrl.updateAndDraw(makeFrame(), 0.033, false);
-    expect(mockPlayer.draw).not.toHaveBeenCalled();
+    expect(player.draw).not.toHaveBeenCalled();
+  });
+
+  it('keeps Idle looping on Layer 0 and plays one-shot gestures on Layer 1 for clip-based third-party models', () => {
+    const { player, rt } = makeMockPlayer(false);
+    const canvas = { hidden: false } as unknown as HTMLCanvasElement;
+    const CtrlCtor = P2LLive2DController as unknown as new (
+      p: typeof player,
+      c: HTMLCanvasElement,
+    ) => P2LLive2DController;
+    const ctrl = new CtrlCtor(player, canvas);
+
+    expect(rt.p2l_play_layer).toHaveBeenCalledWith(42, 0, 0, 1);
+    ctrl.updateAndDraw(makeFrame({ gesture: 'wave', gestureProgress: 0.2 }), 0.033, false);
+    expect(rt.p2l_play_layer).toHaveBeenCalledWith(42, 1, 2, 2);
+    ctrl.dispose();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AvatarState, mouthTarget, rms } from '../src/avatar-state';
+import { AvatarState, extractSpectralHint, mouthTarget, rms } from '../src/avatar-state';
 
 function state() { const model = new AvatarState(); model.setConnected(true); return model; }
 
@@ -37,6 +37,22 @@ describe('avatar realtime state', () => {
     m.reset(); expect(m.frame(1.2, .03, 1).mood).toBe('idle');
     m.setConnected(false); expect(m.frame(1.3, .03, 1)).toMatchObject({ mood: 'offline', mouth: 0 });
   });
+  it('supports expanded Live2D gestures (think, headpat, poke) with tuned durations', () => {
+    const m = state();
+    m.act('think', 1);
+    expect(m.frame(2.5, .03, 0)).toMatchObject({ gesture: 'think' });
+    expect(m.frame(4.2, .03, 0).gesture).toBeNull();
+
+    m.act('headpat', 5);
+    const pat = m.frame(6.0, .03, 0);
+    expect(pat.gesture).toBe('headpat');
+    expect(pat.happy).toBeGreaterThan(.85);
+    expect(m.frame(7.6, .03, 0).gesture).toBeNull();
+
+    m.act('poke', 8);
+    expect(m.frame(9.0, .03, 0).gesture).toBe('poke');
+    expect(m.frame(10.2, .03, 0).gesture).toBeNull();
+  });
   it('respects reduced motion and bounds pointer tracking', () => {
     const m = state(); m.look(10, -10); m.act('nod', 1);
     const f = m.frame(1.4, .1, 0);
@@ -45,10 +61,15 @@ describe('avatar realtime state', () => {
     expect(m.frame(1.5, .1, 0, true)).toMatchObject({ gazeX: 0, gazeY: 0, breath: 0, blink: 0 });
     expect(m.frame(3, .1, 0).gesture).toBeNull();
   });
-  it('measures real audio energy and rejects silence', () => {
+  it('measures real audio energy, rejects silence, and extracts spectral formants', () => {
     expect(rms(new Float32Array([.5, -.5]))).toBeCloseTo(.5);
     expect(rms(new Float32Array())).toBe(0);
     expect(mouthTarget(.001)).toBe(0);
     expect(mouthTarget(1)).toBe(1);
+    const bins = new Uint8Array(64);
+    bins.fill(255, 0, 8);
+    const hint = extractSpectralHint(bins);
+    expect(hint.low).toBeGreaterThan(0.9);
+    expect(hint.high).toBe(0);
   });
 });

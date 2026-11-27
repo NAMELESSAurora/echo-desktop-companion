@@ -70,7 +70,7 @@ def create_app(
             await bundle.close()
             await store.close()
 
-    app = FastAPI(title="Desktop Companion Pipeline", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="Desktop Companion Pipeline", version="0.5.0", lifespan=lifespan)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
 

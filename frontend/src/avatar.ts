@@ -1,9 +1,14 @@
 import * as THREE from 'three';
-import { AvatarState, rms } from './avatar-state';
-import type { AvatarGesture, AvatarMood } from './avatar-state';
+import { AvatarState, extractSpectralHint, rms } from './avatar-state';
+import type { AvatarExpressionPreset, AvatarGesture, AvatarMood } from './avatar-state';
 import { BuiltinAvatar } from './avatar-drivers';
 import type { AvatarDriver } from './avatar-drivers';
-import { DEFAULT_LIVE2D_MODEL_URL, P2LLive2DController } from './p2l-driver';
+import {
+  DEFAULT_LIVE2D_MODEL_URL,
+  EXPRESSION_PRESET_ORDER,
+  getExpressionLabel,
+  P2LLive2DController,
+} from './p2l-driver';
 import { MAX_VRM_BYTES, validateVrm } from './vrm-file';
 
 const labels: Record<AvatarMood, string> = {
@@ -17,6 +22,14 @@ const labels: Record<AvatarMood, string> = {
   error: '链路受阻',
 };
 
+const GESTURE_NOTES: Record<AvatarGesture, string> = {
+  nod: '轻颔回应，双马尾随之轻摆',
+  wave: '七草荠抬手向你挥手致意',
+  think: '七草荠托腮凝思中…',
+  headpat: '轻轻摸了摸七草荠的头，脸颊微微泛红',
+  poke: '轻戳脸颊，七草荠俏皮地眨眼吐舌',
+};
+
 export class AvatarStage {
   readonly state = new AvatarState();
   private renderer: THREE.WebGLRenderer | null = null;
@@ -28,6 +41,9 @@ export class AvatarStage {
   private live2dCanvas: HTMLCanvasElement | null = null;
   private threeCanvas: HTMLCanvasElement;
   private modeToggleBtn: HTMLButtonElement | null = null;
+  private exprCycleBtn: HTMLButtonElement | null = null;
+  private gestureBtns: Map<AvatarGesture, HTMLButtonElement> = new Map();
+  private currentExpression: AvatarExpressionPreset = 'auto';
   private builtinLive2dAvailable = false;
   private stageExpanded = false;
   private frameId = 0;
@@ -35,9 +51,11 @@ export class AvatarStage {
   private paused = false;
   private generation = 0;
   private samples = new Float32Array(256);
+  private freqBins = new Uint8Array(128);
   private media = matchMedia('(prefers-reduced-motion: reduce)');
   private observer: ResizeObserver | null = null;
   private lastMood: AvatarMood | '' = '';
+  private lastActiveGesture: AvatarGesture | null = null;
   private peakMouth = 0;
   private status: HTMLElement;
   private name: HTMLElement;
@@ -60,6 +78,25 @@ export class AvatarStage {
     this.threeCanvas = canvas;
     this.live2dCanvas = element.querySelector<HTMLCanvasElement>('#avatar-live2d-canvas');
     this.modeToggleBtn = element.querySelector<HTMLButtonElement>('#avatar-mode-toggle');
+    this.exprCycleBtn = element.querySelector<HTMLButtonElement>('#avatar-expr-cycle');
+
+    const gestureBindings: readonly [string, AvatarGesture][] = [
+      ['avatar-nod', 'nod'],
+      ['avatar-wave', 'wave'],
+      ['avatar-think', 'think'],
+      ['avatar-headpat', 'headpat'],
+      ['avatar-poke', 'poke'],
+    ];
+    for (const [id, gesture] of gestureBindings) {
+      const btn = element.querySelector<HTMLButtonElement>(`#${id}`);
+      if (btn) {
+        this.gestureBtns.set(gesture, btn);
+        btn.addEventListener('click', () => this.act(gesture));
+      }
+    }
+
+    this.exprCycleBtn?.addEventListener('click', () => this.cycleExpression());
+
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
       this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -97,8 +134,10 @@ export class AvatarStage {
       target.addEventListener('pointerleave', () => this.state.look(0, 0));
       target.addEventListener('click', event => {
         if (this.live2d && target === this.live2dCanvas) {
-          const hit = this.live2d.hitTest(event.clientX, event.clientY);
-          this.act(hit && hit.toLowerCase().includes('head') ? 'nod' : 'wave');
+          const hit = (this.live2d.hitTest(event.clientX, event.clientY) ?? '').toLowerCase();
+          if (hit.includes('head')) this.act('headpat');
+          else if (hit.includes('face')) this.act('poke');
+          else this.act('wave');
         } else {
           this.act('wave');
         }
@@ -122,8 +161,6 @@ export class AvatarStage {
         void this.tryLoadDefaultLive2D();
       }
     });
-    get<HTMLButtonElement>('avatar-nod').addEventListener('click', () => this.act('nod'));
-    get<HTMLButtonElement>('avatar-wave').addEventListener('click', () => this.act('wave'));
     get<HTMLButtonElement>('avatar-import').addEventListener('click', () => this.file.click());
     this.file.addEventListener('change', () => { const file = this.file.files?.[0]; this.file.value = ''; if (file) void this.importFile(file); });
     this.reset.addEventListener('click', () => this.restore());
@@ -146,16 +183,39 @@ export class AvatarStage {
     if (this.floor) this.floor.visible = !driver.is2dPortrait;
   }
   private showMessage(text: string) { this.message.textContent = text; this.message.hidden = !text; }
+
+  private updateExpressionButton() {
+    if (!this.exprCycleBtn) return;
+    const label = getExpressionLabel(this.currentExpression);
+    this.exprCycleBtn.textContent = `神态 · ${label}`;
+    this.exprCycleBtn.classList.toggle('is-active', this.currentExpression !== 'auto');
+    this.element.dataset.expression = this.currentExpression;
+  }
+
+  private cycleExpression() {
+    const idx = EXPRESSION_PRESET_ORDER.indexOf(this.currentExpression);
+    const next = EXPRESSION_PRESET_ORDER[(idx + 1) % EXPRESSION_PRESET_ORDER.length];
+    this.currentExpression = next;
+    this.live2d?.setExpressionPreset(next);
+    this.updateExpressionButton();
+    const label = getExpressionLabel(next);
+    this.note.textContent = next === 'auto'
+      ? '神态已恢复自动随心境流转'
+      : `七草荠当前神态已切换为「${label}」`;
+  }
+
   private act(gesture: AvatarGesture) {
     const now = performance.now() / 1000;
     this.state.act(gesture, now);
     this.element.dataset.gestureStarted = now.toFixed(3);
-    this.note.textContent = gesture === 'wave' ? '七草荠向你挥手致意' : '轻颔回应';
+    this.note.textContent = GESTURE_NOTES[gesture];
   }
+
   private activateLive2DView(ctrl: P2LLive2DController, displayName: string, isDefault: boolean) {
     this.live2d?.dispose();
     this.live2d = ctrl;
     this.live2d.setExpanded(this.stageExpanded);
+    this.live2d.setExpressionPreset(this.currentExpression);
     if (this.live2dCanvas) this.live2dCanvas.hidden = false;
     this.threeCanvas.hidden = true;
     this.name.textContent = displayName;
@@ -165,7 +225,9 @@ export class AvatarStage {
       this.modeToggleBtn.hidden = !this.builtinLive2dAvailable;
       this.modeToggleBtn.textContent = '切回 2.5D';
     }
-    this.note.textContent = 'Live2D 骨骼与发丝物理在线 · 眼神跟随 + 声波实时口型';
+    if (this.exprCycleBtn) this.exprCycleBtn.hidden = false;
+    this.updateExpressionButton();
+    this.note.textContent = 'Live2D 2.0 多手势骨骼与物理在线 · 点头发摸头、点脸颊俏皮眨眼、点衣袖挥手';
   }
 
   private activateThreeView() {
@@ -178,6 +240,7 @@ export class AvatarStage {
       this.modeToggleBtn.hidden = false;
       this.modeToggleBtn.textContent = '切回 Live2D';
     }
+    if (this.exprCycleBtn) this.exprCycleBtn.hidden = true;
   }
 
   private async tryLoadDefaultLive2D() {
@@ -189,7 +252,6 @@ export class AvatarStage {
       this.builtinLive2dAvailable = true;
       this.activateLive2DView(ctrl, '七草荠 · LIVE2D', true);
     } catch {
-      // Built-in Live2D asset absent or WebGL unsupported -> cleanly keep 2.5D portrait active
       this.builtinLive2dAvailable = false;
     }
   }
@@ -201,11 +263,13 @@ export class AvatarStage {
 
   private restore() {
     this.generation++;
+    this.currentExpression = 'auto';
     this.replace(new BuiltinAvatar());
     this.name.textContent = '七草荠 · NAZUNA';
     this.reset.disabled = true; this.showMessage('');
     this.note.textContent = '移光随眸，轻触致意 · 真实声波驱动共振光环';
     this.element.dataset.model = 'builtin';
+    this.updateExpressionButton();
     if (this.builtinLive2dAvailable) {
       void this.tryLoadDefaultLive2D();
     } else {
@@ -280,7 +344,12 @@ export class AvatarStage {
     if (analyser) analyser.getFloatTimeDomainData(this.samples); else this.samples.fill(0);
     const frame = this.state.frame(timestamp / 1000, delta, rms(this.samples), this.media.matches);
     if (this.live2d) {
-      this.live2d.updateAndDraw(frame, Math.min(delta, .1), this.media.matches);
+      let spectral;
+      if (analyser && frame.mood === 'speaking' && frame.mouth > 0.02) {
+        analyser.getByteFrequencyData(this.freqBins);
+        spectral = extractSpectralHint(this.freqBins);
+      }
+      this.live2d.updateAndDraw(frame, Math.min(delta, .1), this.media.matches, spectral);
     } else {
       this.driver?.update(frame, Math.min(delta, .1), this.media.matches);
       this.renderer.render(this.scene, this.camera);
@@ -293,6 +362,10 @@ export class AvatarStage {
     this.element.dataset.gesture = frame.gesture ?? 'none';
     this.element.dataset.frameTime = (timestamp / 1000).toFixed(3);
     this.element.dataset.gesturePhase = frame.gesture && frame.gestureProgress > .3 && frame.gestureProgress < .7 ? 'active' : 'rest';
+    if (frame.gesture !== this.lastActiveGesture) {
+      this.gestureBtns.forEach((btn, g) => btn.classList.toggle('is-active', g === frame.gesture));
+      this.lastActiveGesture = frame.gesture;
+    }
     if (frame.mood !== this.lastMood) {
       this.status.textContent = labels[frame.mood];
       this.lastMood = frame.mood;
